@@ -211,13 +211,10 @@
   <h1>WH40K Team Pairing Matrix</h1>
   <p class="subtitle">Click cells to set matchup rating &bull; All data auto-saves &bull; <a href="#" onclick="doLogout();return false;" style="color:#888;font-size:0.78rem;">Logout</a></p>
 
-  <!-- SYNC BAR -->
+  <!-- SYNC STATUS -->
   <div class="sync-bar" id="syncBar">
-    <label>Live Sync:</label>
-    <input type="text" id="roomInput" placeholder="Enter room code to join..." style="width:220px;">
-    <button onclick="joinRoomFromInput()">Join</button>
-    <button onclick="createRoom()">Create Room</button>
-    <span id="syncStatus" class="sync-status disconnected">Local only</span>
+    <label>Cloud Sync:</label>
+    <span id="syncStatus" class="sync-status syncing">Connecting...</span>
   </div>
 
   <div class="our-team-bar">
@@ -327,7 +324,6 @@ function checkAuth() {
 const NUM = 5;
 const MAX_GAMES = 10;
 const STORAGE_KEY = 'wh40k_pairing_v5';
-const ROOM_KEY = 'wh40k_room_id';
 const BLOB_API = 'https://jsonblob.com/api/jsonBlob';
 
 // ========== MISSIONS & MAPS DATA ==========
@@ -467,7 +463,7 @@ let selMapId = '';
 function game() { return games[activeGame]; }
 
 // ========== CLOUD SYNC ==========
-let roomId = null;
+const BLOB_ID = '019cf6f9-3a8d-7e5b-a15a-c41dd07c01af';
 let syncInterval = null;
 let lastRemoteJson = '';
 let pushDebounce = null;
@@ -475,8 +471,7 @@ let suppressRemote = false;
 
 function setSyncStatus(text, cls) {
   const el = document.getElementById('syncStatus');
-  el.textContent = text;
-  el.className = 'sync-status ' + cls;
+  if (el) { el.textContent = text; el.className = 'sync-status ' + cls; }
 }
 
 function buildPayload() {
@@ -492,19 +487,18 @@ function applyPayload(data) {
     games = data.games;
     while (games.length < 5) games.push(makeGame(games.length));
   }
-  if (typeof data.activeGame === 'number') activeGame = data.activeGame;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame })); } catch(e) {}
   loadGame();
   suppressRemote = false;
 }
 
 async function pushToRemote() {
-  if (!roomId || suppressRemote) return;
+  if (suppressRemote) return;
   setSyncStatus('Saving...', 'syncing');
   try {
     const payload = buildPayload();
     lastRemoteJson = JSON.stringify(payload);
-    await fetch(BLOB_API + '/' + roomId, {
+    await fetch(BLOB_API + '/' + BLOB_ID, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: lastRemoteJson,
@@ -516,10 +510,9 @@ async function pushToRemote() {
 }
 
 async function pullFromRemote() {
-  if (!roomId) return;
   try {
-    const res = await fetch(BLOB_API + '/' + roomId);
-    if (!res.ok) { setSyncStatus('Room lost', 'error'); return; }
+    const res = await fetch(BLOB_API + '/' + BLOB_ID);
+    if (!res.ok) { setSyncStatus('Sync error', 'error'); return; }
     const text = await res.text();
     if (text === lastRemoteJson) return; // no change
     lastRemoteJson = text;
@@ -527,133 +520,18 @@ async function pullFromRemote() {
     applyPayload(data);
     setSyncStatus('Synced \u2713', 'connected');
   } catch (e) {
-    // silent
+    setSyncStatus('Offline', 'error');
   }
 }
 
 function startSyncPolling() {
   if (syncInterval) clearInterval(syncInterval);
-  syncInterval = setInterval(pullFromRemote, 8000);
-}
-
-function stopSyncPolling() {
-  if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
-}
-
-async function createRoom() {
-  setSyncStatus('Creating...', 'syncing');
-  try {
-    const payload = buildPayload();
-    const body = JSON.stringify(payload);
-    const res = await fetch(BLOB_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: body,
-    });
-    if (!res.ok) throw new Error('Failed to create room');
-    // jsonblob returns the blob URL in Location header
-    const loc = res.headers.get('Location');
-    roomId = loc ? loc.split('/').pop() : null;
-    if (!roomId) {
-      // Fallback: try parsing response body
-      const data = await res.json().catch(() => null);
-      if (data && data.id) roomId = data.id;
-    }
-    if (!roomId) throw new Error('No room ID returned');
-    lastRemoteJson = body;
-    document.getElementById('roomInput').value = roomId;
-    try { localStorage.setItem(ROOM_KEY, roomId); } catch(e) {}
-    // Update URL
-    const url = new URL(window.location);
-    url.searchParams.set('room', roomId);
-    history.replaceState(null, '', url);
-    updateSyncBarUI();
-    setSyncStatus('Connected \u2713', 'connected');
-    startSyncPolling();
-  } catch (e) {
-    setSyncStatus('Create failed: ' + e.message, 'error');
-  }
-}
-
-async function joinRoom(id) {
-  if (!id) return;
-  roomId = id.trim();
-  setSyncStatus('Joining...', 'syncing');
-  try {
-    const res = await fetch(BLOB_API + '/' + roomId);
-    if (!res.ok) { setSyncStatus('Room not found', 'error'); roomId = null; return; }
-    const text = await res.text();
-    lastRemoteJson = text;
-    const data = JSON.parse(text);
-    applyPayload(data);
-    document.getElementById('roomInput').value = roomId;
-    try { localStorage.setItem(ROOM_KEY, roomId); } catch(e) {}
-    const url = new URL(window.location);
-    url.searchParams.set('room', roomId);
-    history.replaceState(null, '', url);
-    updateSyncBarUI();
-    setSyncStatus('Connected \u2713', 'connected');
-    startSyncPolling();
-  } catch (e) {
-    setSyncStatus('Join failed', 'error');
-    roomId = null;
-  }
-}
-
-function joinRoomFromInput() {
-  const val = document.getElementById('roomInput').value.trim();
-  if (!val) return;
-  joinRoom(val);
-}
-
-function leaveRoom() {
-  roomId = null;
-  lastRemoteJson = '';
-  stopSyncPolling();
-  try { localStorage.removeItem(ROOM_KEY); } catch(e) {}
-  const url = new URL(window.location);
-  url.searchParams.delete('room');
-  history.replaceState(null, '', url);
-  document.getElementById('roomInput').value = '';
-  updateSyncBarUI();
-  setSyncStatus('Local only', 'disconnected');
-}
-
-function copyShareLink() {
-  const url = new URL(window.location);
-  url.searchParams.set('room', roomId);
-  navigator.clipboard.writeText(url.toString()).then(() => {
-    setSyncStatus('Link copied!', 'connected');
-    setTimeout(() => setSyncStatus('Connected \u2713', 'connected'), 2000);
-  }).catch(() => {
-    prompt('Share this link:', url.toString());
-  });
-}
-
-function updateSyncBarUI() {
-  const bar = document.getElementById('syncBar');
-  if (roomId) {
-    bar.innerHTML = `
-      <label>Live Sync:</label>
-      <span style="font-size:0.78rem;color:#ccc;font-family:monospace;background:#1a1a2e;padding:3px 8px;border-radius:4px;border:1px solid #444;">${roomId.substring(0, 12)}${roomId.length > 12 ? '...' : ''}</span>
-      <button onclick="copyShareLink()">Copy Link</button>
-      <button onclick="leaveRoom()" style="color:#f88;border-color:#633;">Disconnect</button>
-      <span id="syncStatus" class="sync-status connected">Connected \u2713</span>
-    `;
-  } else {
-    bar.innerHTML = `
-      <label>Live Sync:</label>
-      <input type="text" id="roomInput" placeholder="Enter room code to join..." style="width:220px;">
-      <button onclick="joinRoomFromInput()">Join</button>
-      <button onclick="createRoom()">Create Room</button>
-      <span id="syncStatus" class="sync-status disconnected">Local only</span>
-    `;
-  }
+  syncInterval = setInterval(pullFromRemote, 5000);
 }
 
 function debouncedPush() {
   if (pushDebounce) clearTimeout(pushDebounce);
-  pushDebounce = setTimeout(pushToRemote, 1500);
+  pushDebounce = setTimeout(pushToRemote, 1000);
 }
 
 // ========== PERSISTENCE ==========
@@ -661,8 +539,8 @@ function saveState() {
   ourTeamName = document.getElementById('ourTeamName').value;
   const data = { ourTeamName, ourArmies, games, activeGame };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
-  // Push to cloud if connected
-  if (roomId && !suppressRemote) debouncedPush();
+  // Push to cloud
+  if (!suppressRemote) debouncedPush();
 }
 
 function loadState() {
@@ -927,14 +805,19 @@ function renderMapSelect() {
 
   info.innerHTML = `<strong>Select Map</strong> for: <em>${esc(ourName)}</em> <span style="color:#888">vs</span> <em>${esc(theirName)}</em> <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${colorBg(c)};vertical-align:middle;margin-left:4px;"></span>`;
 
-  const filteredMaps = dep ? getMapsForDeployment(selMapPack, dep) : [];
+  // Collect maps already used in this game's pairings
+  const usedMaps = new Set();
+  g.pairings.forEach(pr => { if (pr.mapPack === selMapPack && pr.mapId) usedMaps.add(pr.mapId); });
+
+  const allMaps = dep ? getMapsForDeployment(selMapPack, dep) : [];
+  const filteredMaps = allMaps.filter(m => !usedMaps.has(m.id));
   const canConfirm = selMapId;
 
   let mapGridHtml = '';
   if (!dep) {
     mapGridHtml = '<div class="map-no-results">Set deployment type in Round Settings above to see maps</div>';
   } else if (filteredMaps.length === 0) {
-    mapGridHtml = '<div class="map-no-results">No maps for this deployment in selected pack</div>';
+    mapGridHtml = '<div class="map-no-results">No available maps for this deployment (all used)</div>';
   } else {
     mapGridHtml = '<div class="map-grid">' + filteredMaps.map(m => {
       const mid = m.id;
@@ -1038,19 +921,18 @@ function makePick(picker, chosenIdx) {
 }
 
 // ========== INIT ==========
-function initApp() {
+async function initApp() {
   loadState();
   loadGame();
-  // Auto-join room from URL param or localStorage
-  const params = new URLSearchParams(window.location.search);
-  const urlRoom = params.get('room');
-  const savedRoom = localStorage.getItem(ROOM_KEY);
-  const id = urlRoom || savedRoom;
-  if (id) {
-    const inp = document.getElementById('roomInput');
-    if (inp) inp.value = id;
-    joinRoom(id);
+  // Pull latest from cloud, then start polling
+  setSyncStatus('Connecting...', 'syncing');
+  try {
+    await pullFromRemote();
+    setSyncStatus('Synced \u2713', 'connected');
+  } catch(e) {
+    setSyncStatus('Using local data', 'disconnected');
   }
+  startSyncPolling();
 }
 
 // Check auth on load
