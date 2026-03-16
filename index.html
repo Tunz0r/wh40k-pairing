@@ -33,6 +33,29 @@
   }
   .tab-actions button:hover { color: #e0e0e0; border-color: #666; }
 
+  /* Sync bar */
+  .sync-bar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 12px;
+    background: #16213e; border: 1px solid #333; border-radius: 6px; flex-wrap: wrap;
+  }
+  .sync-bar label { font-weight: 600; font-size: 0.82rem; white-space: nowrap; color: #a4a; }
+  .sync-bar input {
+    background: #1a1a2e; border: 1px solid #444; color: #e0e0e0; padding: 4px 8px;
+    border-radius: 4px; font-size: 0.82rem; width: 280px; font-family: monospace;
+  }
+  .sync-bar input:focus { outline: 1px solid #c4a44a; }
+  .sync-bar button {
+    padding: 4px 12px; border: 1px solid #444; background: #2a2a3e; color: #ccc;
+    border-radius: 4px; cursor: pointer; font-size: 0.78rem; font-weight: 600;
+    transition: all 0.2s;
+  }
+  .sync-bar button:hover { border-color: #c4a44a; color: #c4a44a; }
+  .sync-bar .sync-status { font-size: 0.75rem; margin-left: auto; }
+  .sync-bar .sync-status.connected { color: #4a9; }
+  .sync-bar .sync-status.disconnected { color: #888; }
+  .sync-bar .sync-status.syncing { color: #c4a44a; }
+  .sync-bar .sync-status.error { color: #f66; }
+
   .our-team-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 8px 12px; background: #16213e; border: 1px solid #333; border-radius: 6px; }
   .our-team-bar label { font-weight: 600; font-size: 0.85rem; white-space: nowrap; color: #4a9; }
   .our-team-bar input { flex: 1; background: transparent; border: 1px solid #333; color: #e0e0e0; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; }
@@ -142,13 +165,60 @@
   .map-no-results { color: #888; font-size: 0.85rem; font-style: italic; padding: 20px; text-align: center; }
   .map-preview { margin-top: 8px; text-align: center; }
   .map-preview img { max-width: 100%; max-height: 300px; border-radius: 6px; border: 1px solid #444; }
+
+  /* Login overlay */
+  .login-overlay {
+    position: fixed; inset: 0; background: #1a1a2e; z-index: 9999;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .login-overlay.hidden { display: none; }
+  .login-box {
+    background: #16213e; border: 2px solid #c4a44a; border-radius: 12px;
+    padding: 40px; max-width: 380px; width: 90%; text-align: center;
+  }
+  .login-box h1 { margin-bottom: 4px; font-size: 1.4rem; }
+  .login-box .login-sub { color: #888; font-size: 0.82rem; margin-bottom: 24px; }
+  .login-box input {
+    display: block; width: 100%; margin-bottom: 12px; padding: 10px 14px;
+    background: #1a1a2e; border: 1px solid #444; color: #e0e0e0;
+    border-radius: 6px; font-size: 0.9rem;
+  }
+  .login-box input:focus { outline: 2px solid #c4a44a; border-color: #c4a44a; }
+  .login-box button {
+    width: 100%; padding: 10px; background: #c4a44a; color: #1a1a2e;
+    border: none; border-radius: 6px; font-size: 1rem; font-weight: 700;
+    cursor: pointer; transition: background 0.2s;
+  }
+  .login-box button:hover { background: #d4b45a; }
+  .login-box .login-err { color: #f66; font-size: 0.82rem; margin-top: 10px; min-height: 1.2em; }
 </style>
 </head>
 <body>
 
-<div class="container">
+<!-- LOGIN -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <h1>Old Grumpy Bastards</h1>
+    <p class="login-sub">WH40K Team Pairing Tool</p>
+    <input type="text" id="loginUser" placeholder="Username" autocomplete="username">
+    <input type="password" id="loginPass" placeholder="Password" autocomplete="current-password">
+    <button onclick="doLogin()">Login</button>
+    <div class="login-err" id="loginErr"></div>
+  </div>
+</div>
+
+<div class="container" id="appContainer" style="display:none;">
   <h1>WH40K Team Pairing Matrix</h1>
-  <p class="subtitle">Click cells to set matchup rating &bull; All data auto-saves</p>
+  <p class="subtitle">Click cells to set matchup rating &bull; All data auto-saves &bull; <a href="#" onclick="doLogout();return false;" style="color:#888;font-size:0.78rem;">Logout</a></p>
+
+  <!-- SYNC BAR -->
+  <div class="sync-bar" id="syncBar">
+    <label>Live Sync:</label>
+    <input type="text" id="roomInput" placeholder="Enter room code to join..." style="width:220px;">
+    <button onclick="joinRoomFromInput()">Join</button>
+    <button onclick="createRoom()">Create Room</button>
+    <span id="syncStatus" class="sync-status disconnected">Local only</span>
+  </div>
 
   <div class="our-team-bar">
     <label>Our Team:</label>
@@ -210,9 +280,55 @@
 </div>
 
 <script>
+// ========== LOGIN ==========
+const AUTH_KEY = 'wh40k_auth';
+const VALID_USER = 'mbn';
+const VALID_HASH = '78'; // simple hash of password
+
+function simpleHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) & 0xffffff;
+  return h.toString(16);
+}
+
+function doLogin() {
+  const u = document.getElementById('loginUser').value.trim().toLowerCase();
+  const p = document.getElementById('loginPass').value;
+  if (u === VALID_USER && simpleHash(p) === VALID_HASH) {
+    try { localStorage.setItem(AUTH_KEY, u); } catch(e) {}
+    document.getElementById('loginOverlay').classList.add('hidden');
+    document.getElementById('appContainer').style.display = '';
+    initApp();
+  } else {
+    document.getElementById('loginErr').textContent = 'Invalid username or password';
+  }
+}
+
+function doLogout() {
+  try { localStorage.removeItem(AUTH_KEY); } catch(e) {}
+  location.reload();
+}
+
+// Check if already logged in
+function checkAuth() {
+  try {
+    if (localStorage.getItem(AUTH_KEY) === VALID_USER) {
+      document.getElementById('loginOverlay').classList.add('hidden');
+      document.getElementById('appContainer').style.display = '';
+      initApp();
+      return;
+    }
+  } catch(e) {}
+  // Show login - listen for Enter key
+  document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('loginUser').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginPass').focus(); });
+}
+
 const NUM = 5;
 const MAX_GAMES = 10;
 const STORAGE_KEY = 'wh40k_pairing_v5';
+const ROOM_KEY = 'wh40k_room_id';
+const BLOB_API = 'https://jsonblob.com/api/jsonBlob';
 
 // ========== MISSIONS & MAPS DATA ==========
 const MISSIONS = [
@@ -298,7 +414,6 @@ function mapImageUrl(packId, mapId) {
 }
 
 function mapLabel(packId, mapId) {
-  // Generate a nice label from the map ID
   const id = String(mapId);
   if (packId === 'wtc2025') {
     return id.replace(/(\D+)(\d+)/, (_, prefix, num) => {
@@ -351,11 +466,203 @@ let selMapId = '';
 
 function game() { return games[activeGame]; }
 
+// ========== CLOUD SYNC ==========
+let roomId = null;
+let syncInterval = null;
+let lastRemoteJson = '';
+let pushDebounce = null;
+let suppressRemote = false;
+
+function setSyncStatus(text, cls) {
+  const el = document.getElementById('syncStatus');
+  el.textContent = text;
+  el.className = 'sync-status ' + cls;
+}
+
+function buildPayload() {
+  return { ourTeamName, ourArmies, games, activeGame, ts: Date.now() };
+}
+
+function applyPayload(data) {
+  if (!data || !data.games) return;
+  suppressRemote = true;
+  if (data.ourTeamName) { ourTeamName = data.ourTeamName; document.getElementById('ourTeamName').value = ourTeamName; }
+  if (data.ourArmies) ourArmies = data.ourArmies;
+  if (data.games) {
+    games = data.games;
+    while (games.length < 5) games.push(makeGame(games.length));
+  }
+  if (typeof data.activeGame === 'number') activeGame = data.activeGame;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame })); } catch(e) {}
+  loadGame();
+  suppressRemote = false;
+}
+
+async function pushToRemote() {
+  if (!roomId || suppressRemote) return;
+  setSyncStatus('Saving...', 'syncing');
+  try {
+    const payload = buildPayload();
+    lastRemoteJson = JSON.stringify(payload);
+    await fetch(BLOB_API + '/' + roomId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: lastRemoteJson,
+    });
+    setSyncStatus('Synced \u2713', 'connected');
+  } catch (e) {
+    setSyncStatus('Sync error', 'error');
+  }
+}
+
+async function pullFromRemote() {
+  if (!roomId) return;
+  try {
+    const res = await fetch(BLOB_API + '/' + roomId);
+    if (!res.ok) { setSyncStatus('Room lost', 'error'); return; }
+    const text = await res.text();
+    if (text === lastRemoteJson) return; // no change
+    lastRemoteJson = text;
+    const data = JSON.parse(text);
+    applyPayload(data);
+    setSyncStatus('Synced \u2713', 'connected');
+  } catch (e) {
+    // silent
+  }
+}
+
+function startSyncPolling() {
+  if (syncInterval) clearInterval(syncInterval);
+  syncInterval = setInterval(pullFromRemote, 8000);
+}
+
+function stopSyncPolling() {
+  if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+}
+
+async function createRoom() {
+  setSyncStatus('Creating...', 'syncing');
+  try {
+    const payload = buildPayload();
+    const body = JSON.stringify(payload);
+    const res = await fetch(BLOB_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: body,
+    });
+    if (!res.ok) throw new Error('Failed to create room');
+    // jsonblob returns the blob URL in Location header
+    const loc = res.headers.get('Location');
+    roomId = loc ? loc.split('/').pop() : null;
+    if (!roomId) {
+      // Fallback: try parsing response body
+      const data = await res.json().catch(() => null);
+      if (data && data.id) roomId = data.id;
+    }
+    if (!roomId) throw new Error('No room ID returned');
+    lastRemoteJson = body;
+    document.getElementById('roomInput').value = roomId;
+    try { localStorage.setItem(ROOM_KEY, roomId); } catch(e) {}
+    // Update URL
+    const url = new URL(window.location);
+    url.searchParams.set('room', roomId);
+    history.replaceState(null, '', url);
+    updateSyncBarUI();
+    setSyncStatus('Connected \u2713', 'connected');
+    startSyncPolling();
+  } catch (e) {
+    setSyncStatus('Create failed: ' + e.message, 'error');
+  }
+}
+
+async function joinRoom(id) {
+  if (!id) return;
+  roomId = id.trim();
+  setSyncStatus('Joining...', 'syncing');
+  try {
+    const res = await fetch(BLOB_API + '/' + roomId);
+    if (!res.ok) { setSyncStatus('Room not found', 'error'); roomId = null; return; }
+    const text = await res.text();
+    lastRemoteJson = text;
+    const data = JSON.parse(text);
+    applyPayload(data);
+    document.getElementById('roomInput').value = roomId;
+    try { localStorage.setItem(ROOM_KEY, roomId); } catch(e) {}
+    const url = new URL(window.location);
+    url.searchParams.set('room', roomId);
+    history.replaceState(null, '', url);
+    updateSyncBarUI();
+    setSyncStatus('Connected \u2713', 'connected');
+    startSyncPolling();
+  } catch (e) {
+    setSyncStatus('Join failed', 'error');
+    roomId = null;
+  }
+}
+
+function joinRoomFromInput() {
+  const val = document.getElementById('roomInput').value.trim();
+  if (!val) return;
+  joinRoom(val);
+}
+
+function leaveRoom() {
+  roomId = null;
+  lastRemoteJson = '';
+  stopSyncPolling();
+  try { localStorage.removeItem(ROOM_KEY); } catch(e) {}
+  const url = new URL(window.location);
+  url.searchParams.delete('room');
+  history.replaceState(null, '', url);
+  document.getElementById('roomInput').value = '';
+  updateSyncBarUI();
+  setSyncStatus('Local only', 'disconnected');
+}
+
+function copyShareLink() {
+  const url = new URL(window.location);
+  url.searchParams.set('room', roomId);
+  navigator.clipboard.writeText(url.toString()).then(() => {
+    setSyncStatus('Link copied!', 'connected');
+    setTimeout(() => setSyncStatus('Connected \u2713', 'connected'), 2000);
+  }).catch(() => {
+    prompt('Share this link:', url.toString());
+  });
+}
+
+function updateSyncBarUI() {
+  const bar = document.getElementById('syncBar');
+  if (roomId) {
+    bar.innerHTML = `
+      <label>Live Sync:</label>
+      <span style="font-size:0.78rem;color:#ccc;font-family:monospace;background:#1a1a2e;padding:3px 8px;border-radius:4px;border:1px solid #444;">${roomId.substring(0, 12)}${roomId.length > 12 ? '...' : ''}</span>
+      <button onclick="copyShareLink()">Copy Link</button>
+      <button onclick="leaveRoom()" style="color:#f88;border-color:#633;">Disconnect</button>
+      <span id="syncStatus" class="sync-status connected">Connected \u2713</span>
+    `;
+  } else {
+    bar.innerHTML = `
+      <label>Live Sync:</label>
+      <input type="text" id="roomInput" placeholder="Enter room code to join..." style="width:220px;">
+      <button onclick="joinRoomFromInput()">Join</button>
+      <button onclick="createRoom()">Create Room</button>
+      <span id="syncStatus" class="sync-status disconnected">Local only</span>
+    `;
+  }
+}
+
+function debouncedPush() {
+  if (pushDebounce) clearTimeout(pushDebounce);
+  pushDebounce = setTimeout(pushToRemote, 1500);
+}
+
 // ========== PERSISTENCE ==========
 function saveState() {
   ourTeamName = document.getElementById('ourTeamName').value;
   const data = { ourTeamName, ourArmies, games, activeGame };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+  // Push to cloud if connected
+  if (roomId && !suppressRemote) debouncedPush();
 }
 
 function loadState() {
@@ -648,7 +955,7 @@ function renderMapSelect() {
 
   ctrl.innerHTML = `
     <div class="map-select-panel">
-      <h4>Map Selection${dep ? ' — ' + esc(dep) : ''}</h4>
+      <h4>Map Selection${dep ? ' \u2014 ' + esc(dep) : ''}</h4>
       <div class="map-selectors">
         <div class="sel-group">
           <label>Map Pack</label>
@@ -712,7 +1019,6 @@ function toggleTheirCounter(j){if(theirCounters.includes(j))theirCounters=theirC
 function confirmCounters(){if(ourCounters.length!==2||theirCounters.length!==2)return;currentStep='pick1';renderStep();}
 
 function makePick(picker, chosenIdx) {
-  // Record matchup but don't finalize yet - need map selection
   if (picker === 'us') {
     pendingPairing = {ours: ourDefenderIdx, theirs: chosenIdx};
     pairedOurs.add(ourDefenderIdx);
@@ -732,8 +1038,23 @@ function makePick(picker, chosenIdx) {
 }
 
 // ========== INIT ==========
-loadState();
-loadGame();
+function initApp() {
+  loadState();
+  loadGame();
+  // Auto-join room from URL param or localStorage
+  const params = new URLSearchParams(window.location.search);
+  const urlRoom = params.get('room');
+  const savedRoom = localStorage.getItem(ROOM_KEY);
+  const id = urlRoom || savedRoom;
+  if (id) {
+    const inp = document.getElementById('roomInput');
+    if (inp) inp.value = id;
+    joinRoom(id);
+  }
+}
+
+// Check auth on load
+checkAuth();
 </script>
 </body>
 </html>
