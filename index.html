@@ -132,6 +132,16 @@
   .rec-rank { color: #c4a44a; font-weight: 700; margin-right: 8px; }
   .rec-score { color: #888; font-size: 0.8rem; margin-left: 8px; }
   .score-total { font-size: 0.9rem; color: #c4a44a; font-weight: 600; margin-top: 8px; }
+
+  /* Share section */
+  .share-section { background: #16213e; border: 1px solid #333; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+  .share-section h2 { font-size: 1.1rem; color: #c4a44a; margin-bottom: 10px; }
+  .share-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .share-row .action-btn { font-size: 0.8rem; padding: 6px 16px; }
+  .share-feedback { font-size: 0.8rem; color: #4a9; margin-left: 8px; opacity: 0; transition: opacity 0.3s; }
+  .share-feedback.show { opacity: 1; }
+  .share-input { flex: 1; min-width: 200px; background: #1a1a2e; border: 1px solid #333; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; font-size: 0.78rem; font-family: monospace; }
+  .share-input:focus { outline: 1px solid #c4a44a; }
 </style>
 </head>
 <body>
@@ -144,6 +154,20 @@
   <div class="our-team-bar">
     <label>Our Team:</label>
     <input type="text" id="ourTeamName" value="Old Grumpy Bastards" oninput="saveState()">
+  </div>
+
+  <!-- Share -->
+  <div class="share-section">
+    <h2>Share with Team</h2>
+    <div class="share-row">
+      <button class="action-btn primary" onclick="shareLink()">Copy Share Link</button>
+      <button class="action-btn primary" style="background:#4a9;" onclick="shareCurrentGame()">Copy This Game Only</button>
+      <span class="share-feedback" id="shareFeedback"></span>
+    </div>
+    <div class="share-row" style="margin-top:8px;">
+      <input class="share-input" id="importInput" placeholder="Paste a share link or code here...">
+      <button class="action-btn primary" onclick="importData()">Import</button>
+    </div>
   </div>
 
   <!-- Game tabs -->
@@ -254,6 +278,127 @@ function loadState() {
     if (typeof d.activeGame === 'number') activeGame = d.activeGame;
     document.getElementById('ourTeamName').value = ourTeamName;
   } catch(e) {}
+}
+
+// ========== SHARING ==========
+function encodeData(data) {
+  // Compact the ratings: g=green, y=yellow, r=red, n=none
+  const compact = JSON.parse(JSON.stringify(data));
+  if (compact.games) {
+    compact.games.forEach(g => {
+      g.ratings = g.ratings.map(row => row.map(c => c[0]).join('')).join('|');
+    });
+  }
+  if (compact.g) { // single game
+    compact.g.ratings = compact.g.ratings.map(row => row.map(c => c[0]).join('')).join('|');
+  }
+  return btoa(unescape(encodeURIComponent(JSON.stringify(compact))));
+}
+
+function decodeData(str) {
+  const compact = JSON.parse(decodeURIComponent(escape(atob(str))));
+  const expandRatings = (r) => {
+    if (typeof r !== 'string') return r;
+    const map = {g:'green',y:'yellow',r:'red',n:'none'};
+    return r.split('|').map(row => row.split('').map(c => map[c] || 'none'));
+  };
+  if (compact.games) {
+    compact.games.forEach(g => { g.ratings = expandRatings(g.ratings); });
+  }
+  if (compact.g) {
+    compact.g.ratings = expandRatings(compact.g.ratings);
+  }
+  return compact;
+}
+
+function shareLink() {
+  const data = { ourTeamName, ourArmies, games, activeGame };
+  const code = encodeData(data);
+  const url = location.origin + location.pathname + '#' + code;
+  navigator.clipboard.writeText(url).then(() => {
+    flashFeedback('Link copied! Share it with your team.');
+  }).catch(() => {
+    // Fallback: show in import box so they can copy manually
+    document.getElementById('importInput').value = url;
+    document.getElementById('importInput').select();
+    flashFeedback('Link ready in the text box — copy it manually.');
+  });
+}
+
+function shareCurrentGame() {
+  const g = game();
+  const data = { ourTeamName, ourArmies, g, gameIdx: activeGame };
+  const code = encodeData(data);
+  const url = location.origin + location.pathname + '#g' + code;
+  navigator.clipboard.writeText(url).then(() => {
+    flashFeedback(`"${g.theirTeamName}" game link copied!`);
+  }).catch(() => {
+    document.getElementById('importInput').value = url;
+    document.getElementById('importInput').select();
+    flashFeedback('Link ready in the text box — copy it manually.');
+  });
+}
+
+function importData() {
+  const input = document.getElementById('importInput').value.trim();
+  if (!input) return;
+  try {
+    // Extract code from URL or raw code
+    let code = input;
+    if (code.includes('#')) code = code.split('#').pop();
+    const isSingleGame = code.startsWith('g');
+    if (isSingleGame) code = code.slice(1);
+    const data = decodeData(code);
+
+    if (isSingleGame && data.g) {
+      // Import single game into current tab
+      if (data.ourArmies) ourArmies = data.ourArmies;
+      if (data.ourTeamName) {
+        ourTeamName = data.ourTeamName;
+        document.getElementById('ourTeamName').value = ourTeamName;
+      }
+      games[activeGame] = data.g;
+      saveState();
+      loadGame();
+      flashFeedback(`Imported "${data.g.theirTeamName}" into current tab!`);
+    } else if (data.games) {
+      // Full import
+      if (data.ourTeamName) ourTeamName = data.ourTeamName;
+      if (data.ourArmies) ourArmies = data.ourArmies;
+      games = data.games;
+      while (games.length < 5) games.push(makeGame(games.length));
+      activeGame = data.activeGame || 0;
+      document.getElementById('ourTeamName').value = ourTeamName;
+      saveState();
+      loadGame();
+      flashFeedback('All games imported!');
+    } else {
+      flashFeedback('Invalid share code.', true);
+    }
+  } catch(e) {
+    flashFeedback('Invalid share code.', true);
+  }
+  document.getElementById('importInput').value = '';
+}
+
+function flashFeedback(msg, isError) {
+  const el = document.getElementById('shareFeedback');
+  el.textContent = msg;
+  el.style.color = isError ? '#f88' : '#4a9';
+  el.classList.add('show');
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// Check URL hash on load
+function checkUrlHash() {
+  const hash = location.hash.slice(1);
+  if (!hash) return;
+  // Auto-import from URL
+  document.getElementById('importInput').value = hash;
+  // Clear hash so it doesn't re-import on refresh
+  history.replaceState(null, '', location.pathname);
+  importData();
 }
 
 // ========== TABS ==========
@@ -759,6 +904,7 @@ function makePick(picker, chosenIdx) {
 
 // ========== INIT ==========
 loadState();
+checkUrlHash();
 loadGame();
 </script>
 
