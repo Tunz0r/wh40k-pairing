@@ -571,13 +571,15 @@ function localHasData() {
 function applyPayload(data) {
   if (!data || !data.games) return;
   suppressRemote = true;
+  console.log('[sync] applyPayload: games=' + data.games.length + ', scouts=' + (data.scouts ? data.scouts.length : 'none') + ', ts=' + data.ts);
   if (data.ourTeamName) { ourTeamName = data.ourTeamName; document.getElementById('ourTeamName').value = ourTeamName; }
   if (data.ourArmies) ourArmies = data.ourArmies;
   if (data.games) {
     games = data.games;
     while (games.length < 5) games.push(makeGame(games.length));
   }
-  if (data.scouts) {
+  // Always sync scouts — use remote if present, keep local otherwise
+  if (Array.isArray(data.scouts)) {
     scouts = data.scouts;
   }
   lastRemoteTs = data.ts || 0;
@@ -596,8 +598,8 @@ async function ghApiFetch(token) {
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const meta = await res.json();
   fileSha = meta.sha;
-  // Decode base64 content (GitHub returns with newlines)
-  const raw = atob(meta.content.replace(/\n/g, ''));
+  // Decode base64 content (GitHub returns with newlines) — must mirror encode
+  const raw = decodeURIComponent(escape(atob(meta.content.replace(/\n/g, ''))));
   return JSON.parse(raw);
 }
 
@@ -624,6 +626,7 @@ async function pushToRemote(retryCount) {
       } catch(e) {}
     }
     const payload = buildPayload();
+    console.log('[sync] pushing: games=' + payload.games.length + ', scouts=' + (payload.scouts ? payload.scouts.length : 0) + ', ts=' + payload.ts);
     const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
     const body = { message: 'sync', content, branch: GH_BRANCH };
     if (fileSha) body.sha = fileSha;
