@@ -538,9 +538,19 @@ async function pushToRemote(retryCount) {
   syncBusy = true;
   setSyncStatus('Saving...', 'syncing');
   try {
-    // Always get fresh SHA before pushing
+    // Always get fresh SHA before pushing — also check remote data
     if (!fileSha) {
-      try { await ghApiFetch(token); } catch(e) {}
+      try {
+        const remoteCheck = await ghApiFetch(token);
+        const remoteTs = remoteCheck.ts || 0;
+        // Safety: if remote has newer real data and local is empty, pull instead
+        if (remoteTs > lastLocalTs && !localHasData()) {
+          lastRemoteTs = remoteTs;
+          applyPayload(remoteCheck);
+          setSyncStatus('Synced \u2713 (pulled newer data)', 'connected');
+          return;
+        }
+      } catch(e) {}
     }
     const payload = buildPayload();
     const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -605,14 +615,35 @@ function debouncedPush() {
   pushDebounce = setTimeout(pushToRemote, 1500);
 }
 
-function setGhToken() {
+async function setGhToken() {
   const t = prompt('Enter GitHub Personal Access Token (classic, with repo scope):');
   if (t && t.trim()) {
     ghToken = t.trim();
     try { localStorage.setItem(GH_TOKEN_KEY, ghToken); } catch(e) {}
-    setSyncStatus('Token saved \u2014 syncing...', 'syncing');
-    fileSha = null; // Force fresh SHA fetch
-    pushToRemote();
+    fileSha = null;
+    // Always pull first after setting token — never blindly push
+    setSyncStatus('Token saved \u2014 pulling...', 'syncing');
+    try {
+      const remoteData = await ghApiFetch(ghToken);
+      const remoteTs = remoteData.ts || 0;
+      const remoteHasData = remoteData.games && remoteData.games.some(g =>
+        (g.pairings && g.pairings.length > 0) || (g.ratings && g.ratings.some(row => row.some(c => c !== 'none')))
+      );
+      if (remoteHasData && remoteTs > 0) {
+        lastRemoteTs = remoteTs;
+        applyPayload(remoteData);
+        setSyncStatus('Synced \u2713', 'connected');
+      } else if (localHasData()) {
+        setSyncStatus('Uploading local data...', 'syncing');
+        await pushToRemote();
+      } else {
+        setSyncStatus('Synced \u2713', 'connected');
+      }
+    } catch(e) {
+      console.error('Token sync failed:', e);
+      setSyncStatus('Sync error: ' + e.message, 'error');
+    }
+    startSyncPolling();
   }
 }
 
