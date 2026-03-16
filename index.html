@@ -88,10 +88,11 @@
   .actions-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .pairings-log { margin-top: 12px; }
   .pairings-log h3 { font-size: 0.95rem; margin-bottom: 8px; color: #c4a44a; }
-  .pairing-entry { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #1a1a2e; border-radius: 4px; margin-bottom: 4px; font-size: 0.85rem; }
+  .pairing-entry { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #1a1a2e; border-radius: 4px; margin-bottom: 4px; font-size: 0.85rem; flex-wrap: wrap; }
   .pairing-entry .round-num { color: #c4a44a; font-weight: 700; min-width: 20px; }
   .pairing-entry .vs { color: #888; }
   .pairing-entry .matchup-color { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-left: 6px; }
+  .pairing-entry .map-info { font-size: 0.75rem; color: #888; margin-left: auto; }
   .first-toggle { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
   .first-toggle label { font-size: 0.85rem; }
   .toggle-btn { padding: 6px 14px; border: 2px solid #444; background: #2a2a3e; color: #e0e0e0; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
@@ -117,6 +118,30 @@
   .rec-rank { color: #c4a44a; font-weight: 700; margin-right: 8px; }
   .rec-score { color: #888; font-size: 0.8rem; margin-left: 8px; }
   .score-total { font-size: 0.9rem; color: #c4a44a; font-weight: 600; margin-top: 8px; }
+
+  /* Map selection */
+  .map-select-panel { background: #1a1a2e; border: 2px solid #c4a44a; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .map-select-panel h4 { color: #c4a44a; font-size: 0.95rem; margin-bottom: 12px; }
+  .map-selectors { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; align-items: flex-end; }
+  .map-selectors .sel-group { display: flex; flex-direction: column; gap: 4px; }
+  .map-selectors label { font-size: 0.78rem; color: #888; font-weight: 600; }
+  .map-selectors select {
+    background: #16213e; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px;
+    border-radius: 4px; font-size: 0.85rem; min-width: 180px; cursor: pointer;
+  }
+  .map-selectors select:focus { outline: 1px solid #c4a44a; }
+  .map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 12px; max-height: 400px; overflow-y: auto; padding: 4px; }
+  .map-card {
+    border: 2px solid #333; border-radius: 6px; cursor: pointer; overflow: hidden;
+    transition: all 0.2s; background: #2a2a3e;
+  }
+  .map-card:hover { border-color: #888; transform: scale(1.02); }
+  .map-card.selected { border-color: #c4a44a; box-shadow: 0 0 12px rgba(196,164,74,0.4); }
+  .map-card img { width: 100%; height: 120px; object-fit: cover; display: block; background: #111; }
+  .map-card .map-label { padding: 4px 8px; font-size: 0.72rem; font-weight: 600; color: #ccc; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .map-no-results { color: #888; font-size: 0.85rem; font-style: italic; padding: 20px; text-align: center; }
+  .map-preview { margin-top: 8px; text-align: center; }
+  .map-preview img { max-width: 100%; max-height: 300px; border-radius: 6px; border: 1px solid #444; }
 </style>
 </head>
 <body>
@@ -169,8 +194,108 @@
 <script>
 const NUM = 5;
 const MAX_GAMES = 10;
-const STORAGE_KEY = 'wh40k_pairing_v4';
+const STORAGE_KEY = 'wh40k_pairing_v5';
 
+// ========== MISSIONS & MAPS DATA ==========
+const MISSIONS = [
+  'Take and Hold','Supply Drop','Linchpin','Scorched Earth','Hidden Supplies',
+  'Purge the Foe','Terraform','Unexploded Ordnance','The Ritual','Syphoned Power',
+  'Establish Control','Uneven Ground','Denied Resources','Hold Out'
+];
+
+const DEPLOYMENTS = [
+  'Hammer and Anvil','Crucible of Battle','Search and Destroy',
+  'Tipping Point','Sweeping Engagement','Dawn of War'
+];
+
+const MAP_BASE = 'https://mikeporterdev.github.io/41k-map-browser/images';
+
+// WTC 2025 maps
+const WTC2025 = [
+  {id:'search1',d:'Search and Destroy'},{id:'search2',d:'Search and Destroy'},{id:'search3',d:'Search and Destroy'},
+  {id:'search45',d:'Search and Destroy'},{id:'search6',d:'Search and Destroy'},{id:'search7',d:'Search and Destroy'},{id:'search8',d:'Search and Destroy'},
+  {id:'crucible1',d:'Crucible of Battle'},{id:'crucible2',d:'Crucible of Battle'},{id:'crucible3',d:'Crucible of Battle'},
+  {id:'crucible45',d:'Crucible of Battle'},{id:'crucible6',d:'Crucible of Battle'},{id:'crucible7',d:'Crucible of Battle'},{id:'crucible8',d:'Crucible of Battle'},
+  {id:'hammer1',d:'Hammer and Anvil'},{id:'hammer2',d:'Hammer and Anvil'},{id:'hammer3',d:'Hammer and Anvil'},
+  {id:'hammer45',d:'Hammer and Anvil'},{id:'hammer6',d:'Hammer and Anvil'},{id:'hammer7',d:'Hammer and Anvil'},{id:'hammer8',d:'Hammer and Anvil'},
+  {id:'tipping1',d:'Tipping Point'},{id:'tipping2',d:'Tipping Point'},{id:'tipping3',d:'Tipping Point'},
+  {id:'tipping45',d:'Tipping Point'},{id:'tipping6',d:'Tipping Point'},{id:'tipping7',d:'Tipping Point'},{id:'tipping8',d:'Tipping Point'},
+  {id:'sweeping1',d:'Sweeping Engagement'},{id:'sweeping2',d:'Sweeping Engagement'},{id:'sweeping3',d:'Sweeping Engagement'},
+  {id:'sweeping4',d:'Sweeping Engagement'},{id:'sweeping5',d:'Sweeping Engagement'},{id:'sweeping6',d:'Sweeping Engagement'},
+  {id:'dawn1',d:'Dawn of War'},{id:'dawn2',d:'Dawn of War'},{id:'dawn3',d:'Dawn of War'},
+  {id:'dawn4',d:'Dawn of War'},{id:'dawn5',d:'Dawn of War'},{id:'dawn6',d:'Dawn of War'},
+];
+
+// WTC 2024 maps (numeric IDs, cycling S&D/Crucible/H&A in groups)
+const WTC2024 = [];
+const depCycle = ['Search and Destroy','Crucible of Battle','Hammer and Anvil'];
+const weights = [{start:1,w:'Medium'},{start:17,w:'Heavy'},{start:33,w:'Light'}];
+for (const wg of weights) {
+  let n = wg.start;
+  for (let g = 0; g < 4; g++) {
+    for (let d = 0; d < 3; d++) {
+      WTC2024.push({id:String(n), d:depCycle[d], w:wg.w});
+      n++;
+    }
+    n++; // skip gap
+  }
+}
+// Tipping Point maps 49-56
+const tpWeights = ['Heavy','Heavy','Medium','Medium','Medium','Medium','Light','Light'];
+for (let i = 49; i <= 56; i++) WTC2024.push({id:String(i), d:'Tipping Point', w:tpWeights[i-49]});
+// Sweeping Engagement 57
+WTC2024.push({id:'57', d:'Sweeping Engagement', w:'Medium'});
+
+// GW maps
+const GW_MAPS = [
+  {id:'1',d:['Hammer and Anvil','Search and Destroy']},
+  {id:'2',d:['Crucible of Battle','Dawn of War']},
+  {id:'3',d:['Search and Destroy','Tipping Point']},
+  {id:'4',d:['Hammer and Anvil','Sweeping Engagement']},
+  {id:'5',d:['Crucible of Battle','Tipping Point']},
+  {id:'6',d:['Dawn of War','Sweeping Engagement']},
+  {id:'7',d:['Hammer and Anvil','Search and Destroy','Crucible of Battle']},
+  {id:'8',d:['Dawn of War','Tipping Point','Sweeping Engagement']},
+];
+
+const MAP_PACKS = {
+  wtc2025: { name: 'WTC 2025', folder: 'wtc2025', maps: WTC2025 },
+  wtc2024: { name: 'WTC 2024', folder: 'wtc2024', maps: WTC2024 },
+  gw: { name: 'GW Official', folder: 'gw', maps: GW_MAPS },
+};
+
+function getMapsForDeployment(packId, deployment) {
+  const pack = MAP_PACKS[packId];
+  if (!pack) return [];
+  return pack.maps.filter(m => {
+    if (Array.isArray(m.d)) return m.d.includes(deployment);
+    return m.d === deployment;
+  });
+}
+
+function mapImageUrl(packId, mapId) {
+  const pack = MAP_PACKS[packId];
+  if (!pack) return '';
+  return MAP_BASE + '/' + pack.folder + '/' + mapId + '.png';
+}
+
+function mapLabel(packId, mapId) {
+  // Generate a nice label from the map ID
+  const id = String(mapId);
+  if (packId === 'wtc2025') {
+    return id.replace(/(\D+)(\d+)/, (_, prefix, num) => {
+      const names = {search:'S&D',crucible:'Crucible',hammer:'H&A',tipping:'Tipping',sweeping:'Sweeping',dawn:'Dawn'};
+      return (names[prefix] || prefix) + ' ' + num;
+    });
+  }
+  if (packId === 'wtc2024') {
+    const m = MAP_PACKS.wtc2024.maps.find(x => x.id === id);
+    return 'Map ' + id + (m && m.w ? ' (' + m.w + ')' : '');
+  }
+  return 'Map ' + id;
+}
+
+// ========== GAME STATE ==========
 let ourTeamName = 'Old Grumpy Bastards';
 let ourArmies = ['Army 1','Army 2','Army 3','Army 4','Army 5'];
 
@@ -180,7 +305,7 @@ function makeGame(idx) {
     theirArmies: ['Army 1','Army 2','Army 3','Army 4','Army 5'],
     ratings: Array.from({length: NUM}, () => Array(NUM).fill('none')),
     tablePick: 'us',
-    pairings: [],
+    pairings: [], // [{ours, theirs, mission, deployment, mapPack, mapId}]
   };
 }
 
@@ -196,7 +321,15 @@ let ourDefenderIdx = null;
 let theirDefenderIdx = null;
 let ourCounters = [];
 let theirCounters = [];
-let currentStep = null;
+let currentStep = null; // 'defenders','counters','pick1','pick2','mapSelect'
+
+// Pending pairing awaiting map selection
+let pendingPairing = null; // {ours, theirs}
+let pendingAfterStep = null; // 'pick2' or 'nextRound'
+let selMission = '';
+let selDeployment = '';
+let selMapPack = 'wtc2025';
+let selMapId = '';
 
 function game() { return games[activeGame]; }
 
@@ -271,6 +404,7 @@ function loadGame() {
   pairedOurs = new Set();
   pairedTheirs = new Set();
   pairingActive = false;
+  pendingPairing = null;
   g.pairings.forEach(p => { pairedOurs.add(p.ours); pairedTheirs.add(p.theirs); });
   document.getElementById('startBtn').style.display = '';
   document.getElementById('resetBtn').style.display = 'none';
@@ -278,7 +412,6 @@ function loadGame() {
   document.getElementById('pairingControls').innerHTML = '';
   document.getElementById('stepInfo').textContent = g.pairings.length === 5 ? 'All 5 pairings complete!' : 'Press "Start Pairing" to begin.';
   if (g.pairings.length === 5) document.getElementById('startBtn').style.display = 'none';
-  // Show reset game button if there are any pairings done
   document.getElementById('resetGameBtn').style.display = g.pairings.length > 0 ? '' : 'none';
   document.getElementById('toggleUs').disabled = false;
   document.getElementById('toggleThem').disabled = false;
@@ -390,7 +523,24 @@ function render() {
   }
   table.innerHTML=html;
   const logDiv=document.getElementById('pairingsLog'),listDiv=document.getElementById('pairingsList');
-  if(pairings.length>0){logDiv.style.display='block';listDiv.innerHTML=pairings.map((p,i)=>{const c=ratings[p.ours][p.theirs];return`<div class="pairing-entry"><span class="round-num">${i+1}.</span><span>${esc(ourArmies[p.ours])}</span><span class="vs">vs</span><span>${esc(theirArmies[p.theirs])}</span><span class="matchup-color" style="background:${colorBg(c)}"></span></div>`;}).join('');}
+  if(pairings.length>0){
+    logDiv.style.display='block';
+    listDiv.innerHTML=pairings.map((p,i)=>{
+      const c=ratings[p.ours][p.theirs];
+      let mapInfo = '';
+      if (p.mission) mapInfo += p.mission;
+      if (p.deployment) mapInfo += ' / ' + p.deployment;
+      if (p.mapId) mapInfo += ' / ' + mapLabel(p.mapPack||'wtc2025', p.mapId);
+      return `<div class="pairing-entry">
+        <span class="round-num">${i+1}.</span>
+        <span>${esc(ourArmies[p.ours])}</span>
+        <span class="vs">vs</span>
+        <span>${esc(theirArmies[p.theirs])}</span>
+        <span class="matchup-color" style="background:${colorBg(c)}"></span>
+        ${mapInfo ? `<span class="map-info">${esc(mapInfo)}</span>` : ''}
+      </div>`;
+    }).join('');
+  }
   else logDiv.style.display='none';
   computeOptimal();
 }
@@ -400,27 +550,152 @@ function availableOurs(){return[...Array(NUM).keys()].filter(i=>!pairedOurs.has(
 function availableTheirs(){return[...Array(NUM).keys()].filter(j=>!pairedTheirs.has(j));}
 
 // ========== PAIRING WORKFLOW ==========
-function startPairing(){const g=game();pairingActive=true;roundNum=0;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();saveState();document.getElementById('startBtn').style.display='none';document.getElementById('resetBtn').style.display='';document.getElementById('resetGameBtn').style.display='none';document.getElementById('toggleUs').disabled=true;document.getElementById('toggleThem').disabled=true;beginRound();}
-function resetPairingQuiet(){pairingActive=false;roundNum=0;currentStep=null;}
-function resetPairing(){const g=game();pairingActive=false;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();roundNum=0;currentStep=null;saveState();document.getElementById('startBtn').style.display='';document.getElementById('resetBtn').style.display='none';document.getElementById('resetGameBtn').style.display='none';document.getElementById('pairingControls').style.display='none';document.getElementById('pairingControls').innerHTML='';document.getElementById('stepInfo').textContent='Press "Start Pairing" to begin.';document.getElementById('toggleUs').disabled=false;document.getElementById('toggleThem').disabled=false;renderTabs();render();}
+function startPairing(){const g=game();pairingActive=true;roundNum=0;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();pendingPairing=null;saveState();document.getElementById('startBtn').style.display='none';document.getElementById('resetBtn').style.display='';document.getElementById('resetGameBtn').style.display='none';document.getElementById('toggleUs').disabled=true;document.getElementById('toggleThem').disabled=true;beginRound();}
+function resetPairingQuiet(){pairingActive=false;roundNum=0;currentStep=null;pendingPairing=null;}
+function resetPairing(){const g=game();pairingActive=false;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();roundNum=0;currentStep=null;pendingPairing=null;saveState();document.getElementById('startBtn').style.display='';document.getElementById('resetBtn').style.display='none';document.getElementById('resetGameBtn').style.display='none';document.getElementById('pairingControls').style.display='none';document.getElementById('pairingControls').innerHTML='';document.getElementById('stepInfo').textContent='Press "Start Pairing" to begin.';document.getElementById('toggleUs').disabled=false;document.getElementById('toggleThem').disabled=false;renderTabs();render();}
 
-// Reset pairings only (keep ratings) for practice runs
 function resetGame(){
   if (!confirm('Reset all pairings for this game? (Matchup ratings will be kept)')) return;
   resetPairing();
 }
 
-function beginRound(){const g=game(),ao=availableOurs(),at=availableTheirs();if(ao.length===1&&at.length===1){g.pairings.push({ours:ao[0],theirs:at[0]});pairedOurs.add(ao[0]);pairedTheirs.add(at[0]);saveState();document.getElementById('stepInfo').innerHTML='<strong>All 5 pairings complete!</strong>';document.getElementById('pairingControls').style.display='none';document.getElementById('pairingControls').innerHTML='';document.getElementById('resetBtn').style.display='none';document.getElementById('resetGameBtn').style.display='';renderTabs();render();return;}ourDefenderIdx=null;theirDefenderIdx=null;ourCounters=[];theirCounters=[];currentStep='defenders';renderStep();}
+function beginRound(){
+  const g=game(),ao=availableOurs(),at=availableTheirs();
+  if(ao.length===1&&at.length===1){
+    // Last pairing - still need map selection
+    pendingPairing = {ours:ao[0], theirs:at[0]};
+    pendingAfterStep = 'done';
+    pairedOurs.add(ao[0]); pairedTheirs.add(at[0]);
+    currentStep = 'mapSelect';
+    render();
+    renderMapSelect();
+    return;
+  }
+  ourDefenderIdx=null;theirDefenderIdx=null;ourCounters=[];theirCounters=[];currentStep='defenders';renderStep();
+}
 
 function renderStep(){const g=game(),ratings=g.ratings,theirArmies=g.theirArmies,info=document.getElementById('stepInfo'),ctrl=document.getElementById('pairingControls');ctrl.style.display='';const ao=availableOurs(),at=availableTheirs();
 if(currentStep==='defenders'){info.innerHTML=`<strong>Round ${roundNum+1}:</strong> Both teams put forward a defender simultaneously.`;ctrl.innerHTML=`<div class="parallel-cols"><div class="col-panel us-panel"><h4>Our Defender</h4><div class="army-buttons">${ao.map(i=>`<button class="army-btn ${ourDefenderIdx===i?'selected':''}" onclick="selectOurDefender(${i})">${esc(ourArmies[i])}</button>`).join('')}</div></div><div class="col-panel them-panel"><h4>Their Defender</h4><div class="army-buttons">${at.map(j=>`<button class="army-btn ${theirDefenderIdx===j?'selected':''}" onclick="selectTheirDefender(${j})">${esc(theirArmies[j])}</button>`).join('')}</div></div></div><div class="actions-row"><button class="action-btn primary" onclick="confirmDefenders()" ${ourDefenderIdx===null||theirDefenderIdx===null?'disabled':''}>Confirm Defenders</button></div>`;}
 else if(currentStep==='counters'){const oac=ao.filter(i=>i!==ourDefenderIdx),tac=at.filter(j=>j!==theirDefenderIdx);info.innerHTML=`<strong>Round ${roundNum+1}:</strong> Defenders: <em>${esc(ourArmies[ourDefenderIdx])}</em> (us) &amp; <em>${esc(theirArmies[theirDefenderIdx])}</em> (them). Counter with 2.`;ctrl.innerHTML=`<div class="parallel-cols"><div class="col-panel us-panel"><h4>Our 2 vs <em>${esc(theirArmies[theirDefenderIdx])}</em></h4><div class="army-buttons">${oac.map(i=>{const c=ratings[i][theirDefenderIdx],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${ourCounters.includes(i)?'counter-selected':''}" onclick="toggleOurCounter(${i})">${esc(ourArmies[i])}${t}</button>`;}).join('')}</div></div><div class="col-panel them-panel"><h4>Their 2 vs <em>${esc(ourArmies[ourDefenderIdx])}</em></h4><div class="army-buttons">${tac.map(j=>{const c=ratings[ourDefenderIdx][j],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${theirCounters.includes(j)?'counter-selected':''}" onclick="toggleTheirCounter(${j})">${esc(theirArmies[j])}${t}</button>`;}).join('')}</div></div></div><div class="actions-row"><button class="action-btn primary" onclick="confirmCounters()" ${ourCounters.length!==2||theirCounters.length!==2?'disabled':''}>Confirm Counters</button></div>`;}
-else if(currentStep==='pick1'){renderPickStep(g.tablePick,'pick1');}
-else if(currentStep==='pick2'){renderPickStep(g.tablePick==='us'?'them':'us','pick2');}}
+else if(currentStep==='pick1'){renderPickStep(game().tablePick,'pick1');}
+else if(currentStep==='pick2'){renderPickStep(game().tablePick==='us'?'them':'us','pick2');}
+else if(currentStep==='mapSelect'){renderMapSelect();}}
 
 function renderPickStep(picker,stepId){const g=game(),ratings=g.ratings,ta=g.theirArmies,info=document.getElementById('stepInfo'),ctrl=document.getElementById('pairingControls');
 if(picker==='us'){info.innerHTML=`<strong>Round ${roundNum+1} – ${stepId==='pick1'?'1st':'2nd'} Pick:</strong> WE pick vs our <em>${esc(ourArmies[ourDefenderIdx])}</em>.`;ctrl.innerHTML=`<div class="summary-box"><span class="defender-label">Our defender:</span> ${esc(ourArmies[ourDefenderIdx])} — countered by: ${theirCounters.map(j=>esc(ta[j])).join(' & ')}</div><p style="font-size:0.85rem;margin-bottom:8px;">Pick matchup:</p><div class="army-buttons">${theirCounters.map(j=>{const c=ratings[ourDefenderIdx][j],l=colorLabel(c)||'?',bg=colorBg(c);return`<button class="pick-btn" onclick="makePick('us',${j})" style="border-color:${bg};background:${bg};">${esc(ta[j])}<br><small style="opacity:0.8">${l}</small></button>`;}).join('')}</div>`;}
 else{info.innerHTML=`<strong>Round ${roundNum+1} – ${stepId==='pick1'?'1st':'2nd'} Pick:</strong> THEY pick vs their <em>${esc(ta[theirDefenderIdx])}</em>.`;ctrl.innerHTML=`<div class="summary-box"><span class="defender-label">Their defender:</span> ${esc(ta[theirDefenderIdx])} — countered by: ${ourCounters.map(i=>esc(ourArmies[i])).join(' & ')}</div><p style="font-size:0.85rem;margin-bottom:8px;">They pick:</p><div class="army-buttons">${ourCounters.map(i=>{const c=ratings[i][theirDefenderIdx],l=colorLabel(c)||'?',bg=colorBg(c);return`<button class="pick-btn" onclick="makePick('them',${i})" style="border-color:${bg};background:${bg};">${esc(ourArmies[i])}<br><small style="opacity:0.8">${l}</small></button>`;}).join('')}</div>`;}}
+
+function renderMapSelect() {
+  const g = game(), info = document.getElementById('stepInfo'), ctrl = document.getElementById('pairingControls');
+  ctrl.style.display = '';
+  const p = pendingPairing;
+  const ourName = ourArmies[p.ours], theirName = g.theirArmies[p.theirs];
+  const c = g.ratings[p.ours][p.theirs];
+
+  info.innerHTML = `<strong>Select Mission &amp; Map</strong> for: <em>${esc(ourName)}</em> <span style="color:#888">vs</span> <em>${esc(theirName)}</em> <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${colorBg(c)};vertical-align:middle;margin-left:4px;"></span>`;
+
+  const filteredMaps = selDeployment ? getMapsForDeployment(selMapPack, selDeployment) : [];
+  const canConfirm = selMission && selDeployment && selMapId;
+
+  let mapGridHtml = '';
+  if (!selDeployment) {
+    mapGridHtml = '<div class="map-no-results">Select a deployment type to see available maps</div>';
+  } else if (filteredMaps.length === 0) {
+    mapGridHtml = '<div class="map-no-results">No maps for this deployment in selected pack</div>';
+  } else {
+    mapGridHtml = '<div class="map-grid">' + filteredMaps.map(m => {
+      const mid = typeof m.id === 'object' ? m.id : m.id;
+      const sel = selMapId === mid ? 'selected' : '';
+      const url = mapImageUrl(selMapPack, mid);
+      const lbl = mapLabel(selMapPack, mid);
+      return `<div class="map-card ${sel}" onclick="selectMap('${mid}')">
+        <img src="${url}" alt="${esc(lbl)}" loading="lazy" onerror="this.style.display='none'">
+        <div class="map-label">${esc(lbl)}</div>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  let previewHtml = '';
+  if (selMapId && selDeployment) {
+    previewHtml = `<div class="map-preview"><img src="${mapImageUrl(selMapPack, selMapId)}" alt="Selected map" onerror="this.style.display='none'"></div>`;
+  }
+
+  ctrl.innerHTML = `
+    <div class="map-select-panel">
+      <h4>Mission &amp; Map Selection</h4>
+      <div class="map-selectors">
+        <div class="sel-group">
+          <label>Mission</label>
+          <select onchange="selMission=this.value;renderMapSelect()">
+            <option value="">-- Select Mission --</option>
+            ${MISSIONS.map(m => `<option value="${m}" ${selMission===m?'selected':''}>${m}</option>`).join('')}
+          </select>
+        </div>
+        <div class="sel-group">
+          <label>Deployment</label>
+          <select onchange="selDeployment=this.value;selMapId='';renderMapSelect()">
+            <option value="">-- Select Deployment --</option>
+            ${DEPLOYMENTS.map(d => `<option value="${d}" ${selDeployment===d?'selected':''}>${d}</option>`).join('')}
+          </select>
+        </div>
+        <div class="sel-group">
+          <label>Map Pack</label>
+          <select onchange="selMapPack=this.value;selMapId='';renderMapSelect()">
+            ${Object.entries(MAP_PACKS).map(([k,v]) => `<option value="${k}" ${selMapPack===k?'selected':''}>${v.name}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      ${mapGridHtml}
+      ${previewHtml}
+      <div class="actions-row" style="margin-top:12px;">
+        <button class="action-btn primary" onclick="confirmMapSelection()" ${canConfirm?'':'disabled'}>Confirm Mission &amp; Map</button>
+        ${!canConfirm ? '<span style="font-size:0.78rem;color:#888;">Select mission, deployment, and a map to continue</span>' : ''}
+      </div>
+    </div>`;
+}
+
+function selectMap(id) {
+  selMapId = id;
+  renderMapSelect();
+}
+
+function confirmMapSelection() {
+  if (!selMission || !selDeployment || !selMapId || !pendingPairing) return;
+  const g = game();
+  g.pairings.push({
+    ours: pendingPairing.ours,
+    theirs: pendingPairing.theirs,
+    mission: selMission,
+    deployment: selDeployment,
+    mapPack: selMapPack,
+    mapId: selMapId,
+  });
+  saveState();
+  render();
+
+  const afterStep = pendingAfterStep;
+  pendingPairing = null;
+  // Reset map selections for next pairing
+  selMission = '';
+  selDeployment = '';
+  selMapId = '';
+
+  if (afterStep === 'pick2') {
+    currentStep = 'pick2';
+    renderStep();
+  } else if (afterStep === 'nextRound') {
+    roundNum++;
+    beginRound();
+  } else {
+    // done - all 5 paired
+    document.getElementById('stepInfo').innerHTML = '<strong>All 5 pairings complete!</strong>';
+    document.getElementById('pairingControls').style.display = 'none';
+    document.getElementById('pairingControls').innerHTML = '';
+    document.getElementById('resetBtn').style.display = 'none';
+    document.getElementById('resetGameBtn').style.display = '';
+    renderTabs();
+  }
+}
 
 function selectOurDefender(i){ourDefenderIdx=i;renderStep();}
 function selectTheirDefender(j){theirDefenderIdx=j;renderStep();}
@@ -429,7 +704,25 @@ function toggleOurCounter(i){if(ourCounters.includes(i))ourCounters=ourCounters.
 function toggleTheirCounter(j){if(theirCounters.includes(j))theirCounters=theirCounters.filter(x=>x!==j);else if(theirCounters.length<2)theirCounters.push(j);renderStep();}
 function confirmCounters(){if(ourCounters.length!==2||theirCounters.length!==2)return;currentStep='pick1';renderStep();}
 
-function makePick(picker,chosenIdx){const g=game();if(picker==='us'){g.pairings.push({ours:ourDefenderIdx,theirs:chosenIdx});pairedOurs.add(ourDefenderIdx);pairedTheirs.add(chosenIdx);theirCounters=theirCounters.filter(j=>j!==chosenIdx);}else{g.pairings.push({ours:chosenIdx,theirs:theirDefenderIdx});pairedOurs.add(chosenIdx);pairedTheirs.add(theirDefenderIdx);ourCounters=ourCounters.filter(i=>i!==chosenIdx);}saveState();render();if(currentStep==='pick1'){currentStep='pick2';renderStep();}else{roundNum++;beginRound();}}
+function makePick(picker, chosenIdx) {
+  // Record matchup but don't finalize yet - need map selection
+  if (picker === 'us') {
+    pendingPairing = {ours: ourDefenderIdx, theirs: chosenIdx};
+    pairedOurs.add(ourDefenderIdx);
+    pairedTheirs.add(chosenIdx);
+    theirCounters = theirCounters.filter(j => j !== chosenIdx);
+    pendingAfterStep = currentStep === 'pick1' ? 'pick2' : 'nextRound';
+  } else {
+    pendingPairing = {ours: chosenIdx, theirs: theirDefenderIdx};
+    pairedOurs.add(chosenIdx);
+    pairedTheirs.add(theirDefenderIdx);
+    ourCounters = ourCounters.filter(i => i !== chosenIdx);
+    pendingAfterStep = currentStep === 'pick1' ? 'pick2' : 'nextRound';
+  }
+  render();
+  currentStep = 'mapSelect';
+  renderMapSelect();
+}
 
 // ========== INIT ==========
 loadState();
