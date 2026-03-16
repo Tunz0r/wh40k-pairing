@@ -592,8 +592,8 @@ function applyPayload(data) {
 
 // Fetch file content + SHA from GitHub API (bypasses CDN cache)
 async function ghApiFetch(token) {
-  const res = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}?ref=${GH_BRANCH}`, {
-    headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' }
+  const res = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}?ref=${GH_BRANCH}&_=${Date.now()}`, {
+    headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json', 'If-None-Match': '' }
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const meta = await res.json();
@@ -691,7 +691,7 @@ function startSyncPolling() {
 
 function debouncedPush() {
   if (pushDebounce) clearTimeout(pushDebounce);
-  pushDebounce = setTimeout(pushToRemote, 1500);
+  pushDebounce = setTimeout(() => { pushDebounce = null; pushToRemote(); }, 1500);
 }
 
 async function setGhToken() {
