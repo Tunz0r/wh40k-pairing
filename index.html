@@ -474,8 +474,9 @@ let lastRemoteTs = 0;
 let lastLocalTs = 0;
 let pushDebounce = null;
 let suppressRemote = false;
-let fileSha = null; // GitHub requires SHA for updates
+let fileSha = null;
 let ghToken = '';
+let syncBusy = false; // mutex to prevent concurrent push/pull
 
 function getGhToken() {
   if (ghToken) return ghToken;
@@ -516,21 +517,30 @@ function applyPayload(data) {
   suppressRemote = false;
 }
 
-async function pushToRemote() {
+// Fetch file content + SHA from GitHub API (bypasses CDN cache)
+async function ghApiFetch(token) {
+  const res = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}?ref=${GH_BRANCH}`, {
+    headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' }
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const meta = await res.json();
+  fileSha = meta.sha;
+  // Decode base64 content (GitHub returns with newlines)
+  const raw = atob(meta.content.replace(/\n/g, ''));
+  return JSON.parse(raw);
+}
+
+async function pushToRemote(retryCount) {
   if (suppressRemote) return;
   const token = getGhToken();
-  if (!token) { setSyncStatus('No token - set in settings', 'error'); return; }
+  if (!token) { setSyncStatus('No token \u2014 click Set Token', 'disconnected'); return; }
+  if (syncBusy) { debouncedPush(); return; } // re-queue if busy
+  syncBusy = true;
   setSyncStatus('Saving...', 'syncing');
   try {
-    // Get current SHA first
+    // Always get fresh SHA before pushing
     if (!fileSha) {
-      const metaRes = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}?ref=${GH_BRANCH}`, {
-        headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github.v3+json' }
-      });
-      if (metaRes.ok) {
-        const meta = await metaRes.json();
-        fileSha = meta.sha;
-      }
+      try { await ghApiFetch(token); } catch(e) {}
     }
     const payload = buildPayload();
     const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
@@ -541,50 +551,53 @@ async function pushToRemote() {
       headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json', 'Accept': 'application/vnd.github.v3+json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message || 'HTTP ' + res.status); }
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      // SHA mismatch — refresh SHA and retry once
+      if (res.status === 409 || (e.message && e.message.includes('does not match'))) {
+        fileSha = null;
+        if (!retryCount) { syncBusy = false; return pushToRemote(1); }
+      }
+      throw new Error(e.message || 'HTTP ' + res.status);
+    }
     const result = await res.json();
     fileSha = result.content.sha;
     lastRemoteTs = payload.ts;
     setSyncStatus('Synced \u2713', 'connected');
   } catch (e) {
     console.error('Push failed:', e);
-    // SHA mismatch? Clear and retry once
-    if (e.message && e.message.includes('does not match')) { fileSha = null; }
     setSyncStatus('Push error: ' + e.message, 'error');
+  } finally {
+    syncBusy = false;
   }
 }
 
 async function pullFromRemote(force) {
-  setSyncStatus('Pulling...', 'syncing');
+  const token = getGhToken();
+  if (!token) return; // Can't pull without token (CDN too stale)
+  if (syncBusy) return; // Don't pull while pushing
+  syncBusy = true;
+  if (force) setSyncStatus('Pulling...', 'syncing');
   try {
-    // Read from same-origin GitHub Pages URL (no CORS, no auth needed)
-    const res = await fetch(GH_FILE + '?_=' + Date.now());
-    if (!res.ok) { setSyncStatus('Sync error (HTTP ' + res.status + ')', 'error'); return; }
-    const data = await res.json();
+    // Always read from GitHub API (bypasses CDN cache, keeps SHA fresh)
+    const data = await ghApiFetch(token);
     const remoteTs = data.ts || 0;
     if (force || (remoteTs > lastRemoteTs && remoteTs > lastLocalTs)) {
       lastRemoteTs = remoteTs;
       applyPayload(data);
+      setSyncStatus('Synced \u2713', 'connected');
     }
-    // Also get the SHA for future writes
-    if (!fileSha && getGhToken()) {
-      try {
-        const metaRes = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}?ref=${GH_BRANCH}`, {
-          headers: { 'Authorization': 'token ' + getGhToken(), 'Accept': 'application/vnd.github.v3+json' }
-        });
-        if (metaRes.ok) { fileSha = (await metaRes.json()).sha; }
-      } catch(e) {}
-    }
-    setSyncStatus('Synced \u2713', 'connected');
   } catch (e) {
     console.error('Pull failed:', e);
-    setSyncStatus('Offline', 'error');
+    if (force) setSyncStatus('Pull error: ' + e.message, 'error');
+  } finally {
+    syncBusy = false;
   }
 }
 
 function startSyncPolling() {
   if (syncInterval) clearInterval(syncInterval);
-  syncInterval = setInterval(pullFromRemote, 8000);
+  syncInterval = setInterval(() => pullFromRemote(false), 10000);
 }
 
 function debouncedPush() {
@@ -597,7 +610,8 @@ function setGhToken() {
   if (t && t.trim()) {
     ghToken = t.trim();
     try { localStorage.setItem(GH_TOKEN_KEY, ghToken); } catch(e) {}
-    setSyncStatus('Token saved', 'connected');
+    setSyncStatus('Token saved \u2014 syncing...', 'syncing');
+    fileSha = null; // Force fresh SHA fetch
     pushToRemote();
   }
 }
@@ -992,26 +1006,18 @@ function makePick(picker, chosenIdx) {
 async function initApp() {
   loadState();
   loadGame();
+  const token = getGhToken();
+  if (!token) {
+    setSyncStatus('No token \u2014 click Set Token', 'disconnected');
+    return;
+  }
   setSyncStatus('Connecting...', 'syncing');
   try {
-    // Fetch remote state from same-origin data.json
-    const res = await fetch(GH_FILE + '?_=' + Date.now());
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const remoteData = await res.json();
+    const remoteData = await ghApiFetch(token);
     const remoteTs = remoteData.ts || 0;
     const remoteHasData = remoteData.games && remoteData.games.some(g =>
       (g.pairings && g.pairings.length > 0) || (g.ratings && g.ratings.some(row => row.some(c => c !== 'none')))
     );
-
-    // Get SHA for future writes
-    if (getGhToken()) {
-      try {
-        const metaRes = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_FILE}?ref=${GH_BRANCH}`, {
-          headers: { 'Authorization': 'token ' + getGhToken(), 'Accept': 'application/vnd.github.v3+json' }
-        });
-        if (metaRes.ok) { fileSha = (await metaRes.json()).sha; }
-      } catch(e) {}
-    }
 
     if (remoteHasData && remoteTs > 0) {
       lastRemoteTs = remoteTs;
@@ -1025,10 +1031,7 @@ async function initApp() {
     }
   } catch(e) {
     console.error('Init sync failed:', e);
-    setSyncStatus('Offline - using local data', 'disconnected');
-  }
-  if (!getGhToken()) {
-    setSyncStatus('No token set - click Set Token for cloud sync', 'disconnected');
+    setSyncStatus('Offline \u2014 using local data', 'disconnected');
   }
   startSyncPolling();
 }
