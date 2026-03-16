@@ -166,6 +166,23 @@
   .map-preview { margin-top: 8px; text-align: center; }
   .map-preview img { max-width: 100%; max-height: 300px; border-radius: 6px; border: 1px solid #444; }
 
+  /* Mode toggle */
+  .mode-toggle { display: flex; gap: 0; margin-bottom: 16px; }
+  .mode-toggle button {
+    padding: 8px 20px; border: 2px solid #333; background: #16213e; color: #888;
+    font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .mode-toggle button:first-child { border-radius: 6px 0 0 6px; }
+  .mode-toggle button:last-child { border-radius: 0 6px 6px 0; }
+  .mode-toggle button.active { color: #c4a44a; border-color: #c4a44a; background: #1a1a2e; }
+  .mode-toggle button:hover:not(.active) { color: #e0e0e0; border-color: #555; }
+
+  .scout-import-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; padding: 8px 12px; background: #16213e; border: 1px solid #333; border-radius: 6px; flex-wrap: wrap; }
+  .scout-import-bar label { font-weight: 600; font-size: 0.82rem; color: #a4a; white-space: nowrap; }
+  .scout-import-bar select { background: #1a1a2e; border: 1px solid #444; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 0.82rem; min-width: 180px; }
+  .scout-import-bar button { padding: 4px 12px; border: 1px solid #444; background: #2a2a3e; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.78rem; font-weight: 600; }
+  .scout-import-bar button:hover { border-color: #c4a44a; color: #c4a44a; }
+
   /* Login overlay */
   .login-overlay {
     position: fixed; inset: 0; background: #1a1a2e; z-index: 9999;
@@ -225,7 +242,20 @@
     <input type="text" id="ourTeamName" value="Old Grumpy Bastards" oninput="saveState()">
   </div>
 
+  <div class="mode-toggle">
+    <button id="modeRounds" class="active" onclick="setMode('rounds')">Rounds</button>
+    <button id="modeScouts" onclick="setMode('scouts')">Scouting / Prep</button>
+  </div>
+
+  <!-- ROUNDS MODE -->
+  <div id="roundsMode">
   <div class="tab-bar" id="tabBar"></div>
+
+  <div id="scoutImportBar" class="scout-import-bar" style="display:none;">
+    <label>Load from Scout:</label>
+    <select id="scoutImportSelect"><option value="">-- Select scouted team --</option></select>
+    <button onclick="importScout()">Import</button>
+  </div>
 
   <div id="gameContent">
     <div class="team-headers">
@@ -274,6 +304,25 @@
       <div class="pairings-log" id="pairingsLog" style="display:none;">
         <h3>Confirmed Pairings</h3>
         <div id="pairingsList"></div>
+      </div>
+    </div>
+  </div>
+  </div><!-- end roundsMode -->
+
+  <!-- SCOUTING MODE -->
+  <div id="scoutsMode" style="display:none;">
+    <div class="tab-bar" id="scoutTabBar"></div>
+    <div id="scoutContent">
+      <div class="team-headers">
+        <div class="team-header">
+          <label>Expected Opponent:</label>
+          <input type="text" id="scoutTeamName" value="" oninput="scout().theirTeamName=this.value;saveState();renderScoutTabs();">
+        </div>
+      </div>
+      <div class="matrix-wrapper"><table class="matrix" id="scoutMatrixTable"></table></div>
+      <div class="optimal-section">
+        <h2>Optimal Path Suggestion</h2>
+        <div id="scoutOptimalContent"></div>
       </div>
     </div>
   </div>
@@ -450,6 +499,21 @@ let games = [];
 for (let i = 0; i < 5; i++) games.push(makeGame(i));
 let activeGame = 0;
 
+// ========== SCOUTING STATE ==========
+function makeScout(idx) {
+  return {
+    theirTeamName: 'Scouted Team ' + (idx + 1),
+    theirArmies: ['Army 1','Army 2','Army 3','Army 4','Army 5'],
+    ratings: Array.from({length: NUM}, () => Array(NUM).fill('none')),
+  };
+}
+
+let scouts = [];
+let activeScout = 0;
+let appMode = 'rounds'; // 'rounds' or 'scouts'
+
+function scout() { return scouts[activeScout]; }
+
 let pairingActive = false;
 let roundNum = 0;
 let pairedOurs = new Set();
@@ -491,7 +555,7 @@ function setSyncStatus(text, cls) {
 
 function buildPayload() {
   lastLocalTs = Date.now();
-  return { ourTeamName, ourArmies, games, activeGame, ts: lastLocalTs };
+  return { ourTeamName, ourArmies, games, activeGame, scouts, ts: lastLocalTs };
 }
 
 function localHasData() {
@@ -499,7 +563,9 @@ function localHasData() {
     g.theirTeamName !== ('Opponent ' + (games.indexOf(g) + 1)) ||
     g.ratings.some(row => row.some(c => c !== 'none')) ||
     g.theirArmies.some(a => !a.match(/^Army [1-5]$/))
-  ) || ourArmies.some(a => !a.match(/^Army [1-5]$/));
+  ) || ourArmies.some(a => !a.match(/^Army [1-5]$/))
+    || scouts.some(s => s.ratings.some(row => row.some(c => c !== 'none')) ||
+       s.theirTeamName !== ('Scouted Team ' + (scouts.indexOf(s) + 1)));
 }
 
 function applyPayload(data) {
@@ -511,9 +577,14 @@ function applyPayload(data) {
     games = data.games;
     while (games.length < 5) games.push(makeGame(games.length));
   }
+  if (data.scouts) {
+    scouts = data.scouts;
+  }
   lastRemoteTs = data.ts || 0;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame })); } catch(e) {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame, scouts })); } catch(e) {}
   loadGame();
+  if (appMode === 'scouts' && scouts.length > 0) loadScout();
+  renderScoutImportOptions();
   suppressRemote = false;
 }
 
@@ -626,10 +697,7 @@ async function setGhToken() {
     try {
       const remoteData = await ghApiFetch(ghToken);
       const remoteTs = remoteData.ts || 0;
-      const remoteHasData = remoteData.games && remoteData.games.some(g =>
-        (g.pairings && g.pairings.length > 0) || (g.ratings && g.ratings.some(row => row.some(c => c !== 'none')))
-      );
-      if (remoteHasData && remoteTs > 0) {
+      if (remoteTs > 0 && remoteData.games) {
         lastRemoteTs = remoteTs;
         applyPayload(remoteData);
         setSyncStatus('Synced \u2713', 'connected');
@@ -650,7 +718,7 @@ async function setGhToken() {
 // ========== PERSISTENCE ==========
 function saveState() {
   ourTeamName = document.getElementById('ourTeamName').value;
-  const data = { ourTeamName, ourArmies, games, activeGame };
+  const data = { ourTeamName, ourArmies, games, activeGame, scouts };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
   // Push to cloud
   if (!suppressRemote) debouncedPush();
@@ -667,6 +735,7 @@ function loadState() {
       games = d.games;
       while (games.length < 5) games.push(makeGame(games.length));
     }
+    if (d.scouts) scouts = d.scouts;
     if (typeof d.activeGame === 'number') activeGame = d.activeGame;
     document.getElementById('ourTeamName').value = ourTeamName;
   } catch(e) {}
@@ -688,6 +757,7 @@ function renderTabs() {
   if (games.length > 1) html += `<button onclick="removeGame()">Remove Current</button>`;
   html += `</div>`;
   bar.innerHTML = html;
+  renderScoutImportOptions();
 }
 
 function switchGame(idx) {
@@ -742,6 +812,160 @@ function loadGame() {
   document.getElementById('toggleThem').disabled = false;
   renderTabs();
   render();
+}
+
+// ========== MODE SWITCHING ==========
+function setMode(mode) {
+  appMode = mode;
+  document.getElementById('modeRounds').className = mode === 'rounds' ? 'active' : '';
+  document.getElementById('modeScouts').className = mode === 'scouts' ? 'active' : '';
+  document.getElementById('roundsMode').style.display = mode === 'rounds' ? '' : 'none';
+  document.getElementById('scoutsMode').style.display = mode === 'scouts' ? '' : 'none';
+  if (mode === 'scouts') {
+    if (scouts.length === 0) { scouts.push(makeScout(0)); saveState(); }
+    loadScout();
+  }
+}
+
+// ========== SCOUT TAB MANAGEMENT ==========
+function renderScoutTabs() {
+  const bar = document.getElementById('scoutTabBar');
+  let html = '';
+  for (let i = 0; i < scouts.length; i++) {
+    const s = scouts[i];
+    const active = i === activeScout ? 'active' : '';
+    const hasData = s.ratings.some(row => row.some(c => c !== 'none'));
+    const done = hasData ? 'has-pairings' : '';
+    const label = s.theirTeamName || ('Scout ' + (i+1));
+    html += `<div class="tab ${active} ${done}" onclick="switchScout(${i})">${esc(label)}</div>`;
+  }
+  html += `<div class="tab-actions">`;
+  html += `<button onclick="addScout()">+ Add Scout</button>`;
+  if (scouts.length > 1) html += `<button onclick="removeScout()">Remove Current</button>`;
+  html += `</div>`;
+  bar.innerHTML = html;
+}
+
+function switchScout(idx) {
+  activeScout = idx;
+  loadScout();
+}
+
+function addScout() {
+  scouts.push(makeScout(scouts.length));
+  activeScout = scouts.length - 1;
+  saveState();
+  loadScout();
+}
+
+function removeScout() {
+  if (scouts.length <= 1) return;
+  scouts.splice(activeScout, 1);
+  if (activeScout >= scouts.length) activeScout = scouts.length - 1;
+  saveState();
+  loadScout();
+}
+
+function loadScout() {
+  const s = scout();
+  if (!s) return;
+  document.getElementById('scoutTeamName').value = s.theirTeamName;
+  renderScoutTabs();
+  renderScoutMatrix();
+  computeScoutOptimal();
+}
+
+function renderScoutMatrix() {
+  const s = scout();
+  if (!s) return;
+  const ratings = s.ratings, theirArmies = s.theirArmies;
+  let html = '<thead><tr><th class="corner"></th>';
+  for (let j=0;j<NUM;j++) html+=`<th class="their-header"><input class="army-input" value="${esc(theirArmies[j])}" onchange="updateScoutArmy(${j},this.value)"></th>`;
+  html += '</tr></thead><tbody>';
+  for (let i=0;i<NUM;i++) {
+    html += `<tr><th class="our-header"><input class="army-input" value="${esc(ourArmies[i])}" disabled></th>`;
+    for (let j=0;j<NUM;j++) {
+      const c = ratings[i][j];
+      html += `<td class="color-cell ${c}" onclick="cycleScoutColor(${i},${j})">${colorLabel(c)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  document.getElementById('scoutMatrixTable').innerHTML = html;
+}
+
+function cycleScoutColor(i,j) {
+  const s = scout();
+  const order = ['none','green','yellow','red'];
+  const cur = order.indexOf(s.ratings[i][j]);
+  s.ratings[i][j] = order[(cur+1)%4];
+  saveState();
+  renderScoutMatrix();
+  computeScoutOptimal();
+}
+
+function updateScoutArmy(j, val) {
+  scout().theirArmies[j] = val;
+  saveState();
+  computeScoutOptimal();
+}
+
+function computeScoutOptimal() {
+  const s = scout();
+  if (!s) return;
+  const ratings = s.ratings;
+  const theirArmies = s.theirArmies;
+  const container = document.getElementById('scoutOptimalContent');
+  const hasRatings = ratings.some(row => row.some(c => c !== 'none'));
+  if (!hasRatings) { container.innerHTML = '<p style="color:#888;font-size:0.85rem;">Set matchup colors in the matrix to see suggestions.</p>'; return; }
+
+  const perms = getPermutations([0,1,2,3,4]);
+  let bestScore = -1, bestPerm = null;
+  for (const perm of perms) {
+    let score = 0;
+    for (let i = 0; i < NUM; i++) score += ratingScore(ratings[i][perm[i]]);
+    if (score > bestScore) { bestScore = score; bestPerm = perm; }
+  }
+
+  let html = '<div class="optimal-assignment"><h4 style="font-size:0.9rem;color:#4a9;margin-bottom:6px;">Best Matchup</h4>';
+  for (let i = 0; i < NUM; i++) {
+    const j = bestPerm[i], c = ratings[i][j];
+    html += `<div class="optimal-entry"><span class="matchup-color" style="background:${colorBg(c)}"></span><span>${esc(ourArmies[i])}</span><span style="color:#888;">vs</span><span>${esc(theirArmies[j])}</span><span style="color:#666;font-size:0.8rem;">(${colorLabel(c)||'?'})</span></div>`;
+  }
+  html += `<div class="score-total">Total Score: ${bestScore} / ${NUM * 3}</div></div>`;
+  container.innerHTML = html;
+}
+
+// ========== SCOUT IMPORT ==========
+function renderScoutImportOptions() {
+  const sel = document.getElementById('scoutImportSelect');
+  if (!sel) return;
+  let html = '<option value="">-- Select scouted team --</option>';
+  for (let i = 0; i < scouts.length; i++) {
+    const s = scouts[i];
+    const hasData = s.ratings.some(row => row.some(c => c !== 'none'));
+    if (hasData || s.theirTeamName !== 'Scouted Team ' + (i+1)) {
+      html += `<option value="${i}">${esc(s.theirTeamName)}</option>`;
+    }
+  }
+  sel.innerHTML = html;
+  // Show import bar only if there are scouts with data
+  const bar = document.getElementById('scoutImportBar');
+  if (bar) bar.style.display = scouts.length > 0 ? '' : 'none';
+}
+
+function importScout() {
+  const sel = document.getElementById('scoutImportSelect');
+  const idx = parseInt(sel.value);
+  if (isNaN(idx) || !scouts[idx]) return;
+  const s = scouts[idx];
+  const g = game();
+  if (!confirm(`Import "${s.theirTeamName}" scouting data into the current round?\n\nThis will overwrite the opponent name, armies, and ratings for this round.`)) return;
+  g.theirTeamName = s.theirTeamName;
+  g.theirArmies = JSON.parse(JSON.stringify(s.theirArmies));
+  g.ratings = JSON.parse(JSON.stringify(s.ratings));
+  saveState();
+  loadGame();
 }
 
 // ========== OPTIMAL PATH ==========
@@ -1046,11 +1270,7 @@ async function initApp() {
   try {
     const remoteData = await ghApiFetch(token);
     const remoteTs = remoteData.ts || 0;
-    const remoteHasData = remoteData.games && remoteData.games.some(g =>
-      (g.pairings && g.pairings.length > 0) || (g.ratings && g.ratings.some(row => row.some(c => c !== 'none')))
-    );
-
-    if (remoteHasData && remoteTs > 0) {
+    if (remoteTs > 0 && remoteData.games) {
       lastRemoteTs = remoteTs;
       applyPayload(remoteData);
       setSyncStatus('Synced \u2713', 'connected');
