@@ -215,6 +215,8 @@
   <div class="sync-bar" id="syncBar">
     <label>Cloud Sync:</label>
     <span id="syncStatus" class="sync-status syncing">Connecting...</span>
+    <button onclick="pushToRemote()" style="margin-left:auto;">Force Push</button>
+    <button onclick="pullFromRemote(true)">Force Pull</button>
   </div>
 
   <div class="our-team-bar">
@@ -465,7 +467,8 @@ function game() { return games[activeGame]; }
 // ========== CLOUD SYNC ==========
 const BLOB_ID = '019cf6f9-3a8d-7e5b-a15a-c41dd07c01af';
 let syncInterval = null;
-let lastRemoteJson = '';
+let lastRemoteTs = 0;
+let lastLocalTs = 0;
 let pushDebounce = null;
 let suppressRemote = false;
 
@@ -475,7 +478,16 @@ function setSyncStatus(text, cls) {
 }
 
 function buildPayload() {
-  return { ourTeamName, ourArmies, games, activeGame, ts: Date.now() };
+  lastLocalTs = Date.now();
+  return { ourTeamName, ourArmies, games, activeGame, ts: lastLocalTs };
+}
+
+function localHasData() {
+  return games.some(g => g.pairings.length > 0 ||
+    g.theirTeamName !== ('Opponent ' + (games.indexOf(g) + 1)) ||
+    g.ratings.some(row => row.some(c => c !== 'none')) ||
+    g.theirArmies.some(a => a !== 'Army 1' && a !== 'Army 2' && a !== 'Army 3' && a !== 'Army 4' && a !== 'Army 5')
+  ) || ourArmies.some(a => a !== 'Army 1' && a !== 'Army 2' && a !== 'Army 3' && a !== 'Army 4' && a !== 'Army 5');
 }
 
 function applyPayload(data) {
@@ -487,6 +499,7 @@ function applyPayload(data) {
     games = data.games;
     while (games.length < 5) games.push(makeGame(games.length));
   }
+  lastRemoteTs = data.ts || 0;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame })); } catch(e) {}
   loadGame();
   suppressRemote = false;
@@ -497,29 +510,36 @@ async function pushToRemote() {
   setSyncStatus('Saving...', 'syncing');
   try {
     const payload = buildPayload();
-    lastRemoteJson = JSON.stringify(payload);
-    await fetch(BLOB_API + '/' + BLOB_ID, {
+    const body = JSON.stringify(payload);
+    const res = await fetch(BLOB_API + '/' + BLOB_ID, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: lastRemoteJson,
+      body: body,
     });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    lastRemoteTs = payload.ts;
     setSyncStatus('Synced \u2713', 'connected');
   } catch (e) {
-    setSyncStatus('Sync error', 'error');
+    console.error('Push failed:', e);
+    setSyncStatus('Sync error: ' + e.message, 'error');
   }
 }
 
-async function pullFromRemote() {
+async function pullFromRemote(force) {
+  setSyncStatus('Pulling...', 'syncing');
   try {
-    const res = await fetch(BLOB_API + '/' + BLOB_ID);
-    if (!res.ok) { setSyncStatus('Sync error', 'error'); return; }
-    const text = await res.text();
-    if (text === lastRemoteJson) return; // no change
-    lastRemoteJson = text;
-    const data = JSON.parse(text);
-    applyPayload(data);
+    const res = await fetch(BLOB_API + '/' + BLOB_ID + '?_=' + Date.now());
+    if (!res.ok) { setSyncStatus('Sync error (HTTP ' + res.status + ')', 'error'); return; }
+    const data = await res.json();
+    const remoteTs = data.ts || 0;
+    // Apply remote if forced, or if it's newer than what we know
+    if (force || (remoteTs > lastRemoteTs && remoteTs > lastLocalTs)) {
+      lastRemoteTs = remoteTs;
+      applyPayload(data);
+    }
     setSyncStatus('Synced \u2713', 'connected');
   } catch (e) {
+    console.error('Pull failed:', e);
     setSyncStatus('Offline', 'error');
   }
 }
@@ -531,7 +551,7 @@ function startSyncPolling() {
 
 function debouncedPush() {
   if (pushDebounce) clearTimeout(pushDebounce);
-  pushDebounce = setTimeout(pushToRemote, 1000);
+  pushDebounce = setTimeout(pushToRemote, 800);
 }
 
 // ========== PERSISTENCE ==========
@@ -924,13 +944,32 @@ function makePick(picker, chosenIdx) {
 async function initApp() {
   loadState();
   loadGame();
-  // Pull latest from cloud, then start polling
   setSyncStatus('Connecting...', 'syncing');
   try {
-    await pullFromRemote();
-    setSyncStatus('Synced \u2713', 'connected');
+    // Fetch remote state
+    const res = await fetch(BLOB_API + '/' + BLOB_ID + '?_=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const remoteData = await res.json();
+    const remoteTs = remoteData.ts || 0;
+    const remoteHasData = remoteData.games && remoteData.games.some(g =>
+      g.pairings && g.pairings.length > 0 || g.ratings && g.ratings.some(row => row.some(c => c !== 'none'))
+    );
+
+    if (remoteHasData && remoteTs > 0) {
+      // Remote has real data - apply it
+      lastRemoteTs = remoteTs;
+      applyPayload(remoteData);
+      setSyncStatus('Synced \u2713', 'connected');
+    } else if (localHasData()) {
+      // Remote is empty but local has data - push local to cloud
+      setSyncStatus('Uploading local data...', 'syncing');
+      await pushToRemote();
+    } else {
+      setSyncStatus('Synced \u2713', 'connected');
+    }
   } catch(e) {
-    setSyncStatus('Using local data', 'disconnected');
+    console.error('Init sync failed:', e);
+    setSyncStatus('Offline - using local data', 'disconnected');
   }
   startSyncPolling();
 }
