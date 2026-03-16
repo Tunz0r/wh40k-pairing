@@ -169,6 +169,24 @@
       <h2>Optimal Path Suggestion</h2>
       <div id="optimalContent"></div>
     </div>
+    <div class="pairing-section" style="margin-bottom:16px;">
+      <h2>Round Settings</h2>
+      <div class="map-selectors" style="margin-bottom:0;">
+        <div class="sel-group">
+          <label>Mission</label>
+          <select id="gameMission" onchange="game().mission=this.value;saveState();">
+            <option value="">-- Select Mission --</option>
+          </select>
+        </div>
+        <div class="sel-group">
+          <label>Deployment</label>
+          <select id="gameDeployment" onchange="game().deployment=this.value;selMapId='';saveState();">
+            <option value="">-- Select Deployment --</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
     <div class="pairing-section">
       <h2>Pairing Process</h2>
       <div class="first-toggle">
@@ -305,7 +323,9 @@ function makeGame(idx) {
     theirArmies: ['Army 1','Army 2','Army 3','Army 4','Army 5'],
     ratings: Array.from({length: NUM}, () => Array(NUM).fill('none')),
     tablePick: 'us',
-    pairings: [], // [{ours, theirs, mission, deployment, mapPack, mapId}]
+    mission: '',
+    deployment: '',
+    pairings: [], // [{ours, theirs, mapPack, mapId}]
   };
 }
 
@@ -326,8 +346,6 @@ let currentStep = null; // 'defenders','counters','pick1','pick2','mapSelect'
 // Pending pairing awaiting map selection
 let pendingPairing = null; // {ours, theirs}
 let pendingAfterStep = null; // 'pick2' or 'nextRound'
-let selMission = '';
-let selDeployment = '';
 let selMapPack = 'wtc2025';
 let selMapId = '';
 
@@ -399,8 +417,17 @@ function removeGame() {
 
 function loadGame() {
   const g = game();
+  if (!g.mission) g.mission = '';
+  if (!g.deployment) g.deployment = '';
   document.getElementById('theirTeamName').value = g.theirTeamName;
   setTablePickUI(g.tablePick);
+  // Populate mission dropdown
+  const mSel = document.getElementById('gameMission');
+  mSel.innerHTML = '<option value="">-- Select Mission --</option>' + MISSIONS.map(m => `<option value="${m}" ${g.mission===m?'selected':''}>${m}</option>`).join('');
+  // Populate deployment dropdown
+  const dSel = document.getElementById('gameDeployment');
+  dSel.innerHTML = '<option value="">-- Select Deployment --</option>' + DEPLOYMENTS.map(d => `<option value="${d}" ${g.deployment===d?'selected':''}>${d}</option>`).join('');
+
   pairedOurs = new Set();
   pairedTheirs = new Set();
   pairingActive = false;
@@ -528,9 +555,7 @@ function render() {
     listDiv.innerHTML=pairings.map((p,i)=>{
       const c=ratings[p.ours][p.theirs];
       let mapInfo = '';
-      if (p.mission) mapInfo += p.mission;
-      if (p.deployment) mapInfo += ' / ' + p.deployment;
-      if (p.mapId) mapInfo += ' / ' + mapLabel(p.mapPack||'wtc2025', p.mapId);
+      if (p.mapId) mapInfo = mapLabel(p.mapPack||'wtc2025', p.mapId);
       return `<div class="pairing-entry">
         <span class="round-num">${i+1}.</span>
         <span>${esc(ourArmies[p.ours])}</span>
@@ -591,20 +616,21 @@ function renderMapSelect() {
   const p = pendingPairing;
   const ourName = ourArmies[p.ours], theirName = g.theirArmies[p.theirs];
   const c = g.ratings[p.ours][p.theirs];
+  const dep = g.deployment;
 
-  info.innerHTML = `<strong>Select Mission &amp; Map</strong> for: <em>${esc(ourName)}</em> <span style="color:#888">vs</span> <em>${esc(theirName)}</em> <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${colorBg(c)};vertical-align:middle;margin-left:4px;"></span>`;
+  info.innerHTML = `<strong>Select Map</strong> for: <em>${esc(ourName)}</em> <span style="color:#888">vs</span> <em>${esc(theirName)}</em> <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${colorBg(c)};vertical-align:middle;margin-left:4px;"></span>`;
 
-  const filteredMaps = selDeployment ? getMapsForDeployment(selMapPack, selDeployment) : [];
-  const canConfirm = selMission && selDeployment && selMapId;
+  const filteredMaps = dep ? getMapsForDeployment(selMapPack, dep) : [];
+  const canConfirm = selMapId;
 
   let mapGridHtml = '';
-  if (!selDeployment) {
-    mapGridHtml = '<div class="map-no-results">Select a deployment type to see available maps</div>';
+  if (!dep) {
+    mapGridHtml = '<div class="map-no-results">Set deployment type in Round Settings above to see maps</div>';
   } else if (filteredMaps.length === 0) {
     mapGridHtml = '<div class="map-no-results">No maps for this deployment in selected pack</div>';
   } else {
     mapGridHtml = '<div class="map-grid">' + filteredMaps.map(m => {
-      const mid = typeof m.id === 'object' ? m.id : m.id;
+      const mid = m.id;
       const sel = selMapId === mid ? 'selected' : '';
       const url = mapImageUrl(selMapPack, mid);
       const lbl = mapLabel(selMapPack, mid);
@@ -616,28 +642,14 @@ function renderMapSelect() {
   }
 
   let previewHtml = '';
-  if (selMapId && selDeployment) {
+  if (selMapId && dep) {
     previewHtml = `<div class="map-preview"><img src="${mapImageUrl(selMapPack, selMapId)}" alt="Selected map" onerror="this.style.display='none'"></div>`;
   }
 
   ctrl.innerHTML = `
     <div class="map-select-panel">
-      <h4>Mission &amp; Map Selection</h4>
+      <h4>Map Selection${dep ? ' — ' + esc(dep) : ''}</h4>
       <div class="map-selectors">
-        <div class="sel-group">
-          <label>Mission</label>
-          <select onchange="selMission=this.value;renderMapSelect()">
-            <option value="">-- Select Mission --</option>
-            ${MISSIONS.map(m => `<option value="${m}" ${selMission===m?'selected':''}>${m}</option>`).join('')}
-          </select>
-        </div>
-        <div class="sel-group">
-          <label>Deployment</label>
-          <select onchange="selDeployment=this.value;selMapId='';renderMapSelect()">
-            <option value="">-- Select Deployment --</option>
-            ${DEPLOYMENTS.map(d => `<option value="${d}" ${selDeployment===d?'selected':''}>${d}</option>`).join('')}
-          </select>
-        </div>
         <div class="sel-group">
           <label>Map Pack</label>
           <select onchange="selMapPack=this.value;selMapId='';renderMapSelect()">
@@ -648,8 +660,8 @@ function renderMapSelect() {
       ${mapGridHtml}
       ${previewHtml}
       <div class="actions-row" style="margin-top:12px;">
-        <button class="action-btn primary" onclick="confirmMapSelection()" ${canConfirm?'':'disabled'}>Confirm Mission &amp; Map</button>
-        ${!canConfirm ? '<span style="font-size:0.78rem;color:#888;">Select mission, deployment, and a map to continue</span>' : ''}
+        <button class="action-btn primary" onclick="confirmMapSelection()" ${canConfirm?'':'disabled'}>Confirm Map</button>
+        ${!canConfirm ? '<span style="font-size:0.78rem;color:#888;">Select a map to continue</span>' : ''}
       </div>
     </div>`;
 }
@@ -660,13 +672,11 @@ function selectMap(id) {
 }
 
 function confirmMapSelection() {
-  if (!selMission || !selDeployment || !selMapId || !pendingPairing) return;
+  if (!selMapId || !pendingPairing) return;
   const g = game();
   g.pairings.push({
     ours: pendingPairing.ours,
     theirs: pendingPairing.theirs,
-    mission: selMission,
-    deployment: selDeployment,
     mapPack: selMapPack,
     mapId: selMapId,
   });
@@ -675,9 +685,6 @@ function confirmMapSelection() {
 
   const afterStep = pendingAfterStep;
   pendingPairing = null;
-  // Reset map selections for next pairing
-  selMission = '';
-  selDeployment = '';
   selMapId = '';
 
   if (afterStep === 'pick2') {
