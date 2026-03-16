@@ -605,25 +605,26 @@ async function ghApiFetch(token) {
 
 async function pushToRemote(retryCount) {
   if (suppressRemote) return;
+  retryCount = retryCount || 0;
   const token = getGhToken();
   if (!token) { setSyncStatus('No token \u2014 click Set Token', 'disconnected'); return; }
   if (syncBusy) { debouncedPush(); return; } // re-queue if busy
   syncBusy = true;
   setSyncStatus('Saving...', 'syncing');
   try {
-    // Always get fresh SHA before pushing — also check remote data
-    if (!fileSha) {
-      try {
-        const remoteCheck = await ghApiFetch(token);
-        const remoteTs = remoteCheck.ts || 0;
-        // Safety: if remote has newer real data and local is empty, pull instead
-        if (remoteTs > lastLocalTs && !localHasData()) {
-          lastRemoteTs = remoteTs;
-          applyPayload(remoteCheck);
-          setSyncStatus('Synced \u2713 (pulled newer data)', 'connected');
-          return;
-        }
-      } catch(e) {}
+    // Always get fresh SHA before pushing to avoid mismatch
+    try {
+      const remoteCheck = await ghApiFetch(token);
+      const remoteTs = remoteCheck.ts || 0;
+      // Safety: if remote has newer real data and local is empty, pull instead
+      if (remoteTs > lastLocalTs && !localHasData()) {
+        lastRemoteTs = remoteTs;
+        applyPayload(remoteCheck);
+        setSyncStatus('Synced \u2713 (pulled newer data)', 'connected');
+        return;
+      }
+    } catch(e) {
+      console.warn('[sync] Could not refresh SHA:', e.message);
     }
     const payload = buildPayload();
     console.log('[sync] pushing: games=' + payload.games.length + ', scouts=' + (payload.scouts ? payload.scouts.length : 0) + ', ts=' + payload.ts);
@@ -637,10 +638,12 @@ async function pushToRemote(retryCount) {
     });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      // SHA mismatch — refresh SHA and retry once
-      if (res.status === 409 || (e.message && e.message.includes('does not match'))) {
+      // SHA mismatch — refresh SHA and retry (up to 2 times)
+      if ((res.status === 409 || res.status === 422 || (e.message && e.message.includes('does not match'))) && retryCount < 2) {
+        console.warn('[sync] SHA mismatch, retrying (' + (retryCount+1) + ')...');
         fileSha = null;
-        if (!retryCount) { syncBusy = false; return pushToRemote(1); }
+        syncBusy = false;
+        return pushToRemote(retryCount + 1);
       }
       throw new Error(e.message || 'HTTP ' + res.status);
     }
@@ -658,8 +661,10 @@ async function pushToRemote(retryCount) {
 
 async function pullFromRemote(force) {
   const token = getGhToken();
-  if (!token) return; // Can't pull without token (CDN too stale)
-  if (syncBusy) return; // Don't pull while pushing
+  if (!token) return;
+  if (syncBusy) return;
+  // Don't auto-pull if there's a pending local push (debounce hasn't fired yet)
+  if (!force && pushDebounce) return;
   syncBusy = true;
   if (force) setSyncStatus('Pulling...', 'syncing');
   try {
@@ -721,6 +726,7 @@ async function setGhToken() {
 // ========== PERSISTENCE ==========
 function saveState() {
   ourTeamName = document.getElementById('ourTeamName').value;
+  lastLocalTs = Date.now(); // Mark local change immediately so polls don't overwrite
   const data = { ourTeamName, ourArmies, games, activeGame, scouts };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
   // Push to cloud
