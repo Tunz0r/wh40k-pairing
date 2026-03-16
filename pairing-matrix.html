@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WH40K 5v5 Pairing Matrix</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 { text-align: center; color: #c4a44a; font-size: 1.6rem; margin-bottom: 6px; letter-spacing: 1px; }
+  .subtitle { text-align: center; color: #888; font-size: 0.85rem; margin-bottom: 16px; }
+  .container { max-width: 960px; margin: 0 auto; }
+
+  /* Tabs */
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .tab {
+    padding: 6px 16px; border: 2px solid #333; background: #16213e; color: #888;
+    border-radius: 6px 6px 0 0; cursor: pointer; font-size: 0.8rem; font-weight: 600;
+    transition: all 0.2s; border-bottom: 2px solid #333; white-space: nowrap;
+  }
+  .tab:hover { color: #e0e0e0; border-color: #555; }
+  .tab.active { color: #c4a44a; border-color: #c4a44a; background: #1a1a2e; border-bottom-color: #1a1a2e; }
+  .tab.has-pairings::after { content: ' ✓'; color: #4a9; }
+  .tab-actions { margin-left: auto; display: flex; gap: 6px; }
+  .tab-actions button {
+    padding: 4px 10px; border: 1px solid #444; background: #2a2a3e; color: #888;
+    border-radius: 4px; cursor: pointer; font-size: 0.75rem;
+  }
+  .tab-actions button:hover { color: #e0e0e0; border-color: #666; }
+
+  /* Our team (shared) */
+  .our-team-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 8px 12px; background: #16213e; border: 1px solid #333; border-radius: 6px; }
+  .our-team-bar label { font-weight: 600; font-size: 0.85rem; white-space: nowrap; color: #4a9; }
+  .our-team-bar input { flex: 1; background: transparent; border: 1px solid #333; color: #e0e0e0; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; }
+  .our-team-bar input:focus { outline: 1px solid #c4a44a; }
+
+  .team-headers { display: flex; justify-content: flex-end; margin-bottom: 10px; gap: 20px; }
+  .team-header { display: flex; align-items: center; gap: 8px; }
+  .team-header label { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+  .team-header input { background: #16213e; border: 1px solid #333; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; width: 200px; }
+
+  .matrix-wrapper { overflow-x: auto; margin-bottom: 20px; }
+  table.matrix { border-collapse: collapse; width: 100%; }
+  table.matrix th, table.matrix td { border: 1px solid #333; text-align: center; padding: 0; position: relative; }
+  table.matrix th { background: #16213e; padding: 6px 4px; font-size: 0.8rem; font-weight: 600; }
+  table.matrix th.corner { background: #1a1a2e; border-color: #1a1a2e; }
+  table.matrix th.their-header { min-width: 100px; }
+  table.matrix th.our-header { text-align: right; padding-right: 8px; min-width: 120px; }
+
+  .army-input { background: transparent; border: none; color: #e0e0e0; text-align: center; width: 100%; font-size: 0.8rem; font-weight: 600; padding: 2px; }
+  .army-input:focus { outline: 1px solid #c4a44a; background: #16213e; }
+  th.our-header .army-input { text-align: right; }
+
+  .color-cell { width: 100px; height: 48px; cursor: pointer; transition: opacity 0.3s, filter 0.3s; font-size: 0.75rem; font-weight: 700; user-select: none; }
+  .color-cell:hover { filter: brightness(1.2); }
+  .color-cell.none { background: #2a2a3e; color: #555; }
+  .color-cell.green { background: #2d6a2d; color: #8f8; }
+  .color-cell.yellow { background: #7a6a1a; color: #ffd; }
+  .color-cell.red { background: #6a2d2d; color: #f88; }
+
+  .color-cell.faded { opacity: 0.15; pointer-events: none; }
+
+  .color-cell.matched {
+    opacity: 1 !important; pointer-events: none;
+    box-shadow: inset 0 0 0 3px #c4a44a, 0 0 12px rgba(196,164,74,0.4);
+    position: relative;
+  }
+  .color-cell.matched::after {
+    content: attr(data-match-num); position: absolute; top: 2px; right: 4px;
+    font-size: 0.6rem; color: #c4a44a; font-weight: 700;
+  }
+
+  .pairing-section { background: #16213e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .pairing-section h2 { font-size: 1.1rem; color: #c4a44a; margin-bottom: 12px; }
+
+  .step-info { background: #1a1a2e; border-radius: 6px; padding: 12px; margin-bottom: 12px; font-size: 0.9rem; line-height: 1.5; border-left: 3px solid #c4a44a; }
+
+  .army-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .army-btn { padding: 8px 16px; border: 2px solid #444; background: #2a2a3e; color: #e0e0e0; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; }
+  .army-btn:hover { border-color: #c4a44a; background: #333; }
+  .army-btn.selected { border-color: #c4a44a; background: #3a3520; color: #c4a44a; }
+  .army-btn.counter-selected { border-color: #e06040; background: #3a2020; color: #e0a080; }
+
+  .action-btn { padding: 8px 24px; border: none; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .action-btn.primary { background: #c4a44a; color: #1a1a2e; }
+  .action-btn.primary:hover:not(:disabled) { background: #d4b45a; }
+  .action-btn.danger { background: #6a2d2d; color: #f88; }
+  .action-btn.danger:hover:not(:disabled) { background: #7a3d3d; }
+
+  .actions-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .pairings-log { margin-top: 12px; }
+  .pairings-log h3 { font-size: 0.95rem; margin-bottom: 8px; color: #c4a44a; }
+  .pairing-entry { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #1a1a2e; border-radius: 4px; margin-bottom: 4px; font-size: 0.85rem; }
+  .pairing-entry .round-num { color: #c4a44a; font-weight: 700; min-width: 20px; }
+  .pairing-entry .vs { color: #888; }
+  .pairing-entry .matchup-color { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-left: 6px; }
+
+  .first-toggle { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .first-toggle label { font-size: 0.85rem; }
+  .toggle-btn { padding: 6px 14px; border: 2px solid #444; background: #2a2a3e; color: #e0e0e0; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
+  .toggle-btn.active { border-color: #c4a44a; background: #3a3520; color: #c4a44a; }
+
+  .parallel-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px; }
+  .col-panel { background: #1a1a2e; border-radius: 6px; padding: 12px; border: 1px solid #333; }
+  .col-panel h4 { font-size: 0.85rem; margin-bottom: 8px; color: #c4a44a; }
+  .col-panel.us-panel { border-left: 3px solid #4a9; }
+  .col-panel.them-panel { border-left: 3px solid #a4a; }
+
+  .pick-btn { padding: 10px 16px; border: 2px solid #444; background: #2a2a3e; color: #e0e0e0; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; min-width: 140px; text-align: center; }
+  .pick-btn:hover { filter: brightness(1.2); }
+
+  .summary-box { background: #1a1a2e; border: 1px dashed #555; border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; font-size: 0.85rem; }
+  .summary-box .defender-label { color: #c4a44a; font-weight: 600; }
+
+  .optimal-section { background: #16213e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .optimal-section h2 { font-size: 1.1rem; color: #c4a44a; margin-bottom: 12px; }
+  .optimal-assignment { margin-bottom: 12px; }
+  .optimal-entry { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #1a1a2e; border-radius: 4px; margin-bottom: 4px; font-size: 0.85rem; }
+  .optimal-entry .matchup-color { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+  .defender-rec { background: #1a1a2e; border-radius: 6px; padding: 12px; margin-top: 10px; border: 1px solid #333; }
+  .defender-rec h4 { font-size: 0.9rem; color: #c4a44a; margin-bottom: 8px; }
+  .defender-rec .rec-item { padding: 4px 0; font-size: 0.85rem; border-bottom: 1px solid #222; }
+  .defender-rec .rec-item:last-child { border-bottom: none; }
+  .rec-rank { color: #c4a44a; font-weight: 700; margin-right: 8px; }
+  .rec-score { color: #888; font-size: 0.8rem; margin-left: 8px; }
+  .score-total { font-size: 0.9rem; color: #c4a44a; font-weight: 600; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>WH40K Team Pairing Matrix</h1>
+  <p class="subtitle">Click cells to set matchup rating &bull; All data auto-saves</p>
+
+  <!-- Our team (shared across all games) -->
+  <div class="our-team-bar">
+    <label>Our Team:</label>
+    <input type="text" id="ourTeamName" value="Old Grumpy Bastards" oninput="saveState()">
+  </div>
+
+  <!-- Game tabs -->
+  <div class="tab-bar" id="tabBar"></div>
+
+  <!-- Game content (swapped per tab) -->
+  <div id="gameContent">
+    <div class="team-headers">
+      <div class="team-header">
+        <label>Opponent:</label>
+        <input type="text" id="theirTeamName" value="Opponent 1" oninput="game().theirTeamName=this.value;saveState();renderTabs();">
+      </div>
+    </div>
+
+    <div class="matrix-wrapper">
+      <table class="matrix" id="matrixTable"></table>
+    </div>
+
+    <div class="optimal-section">
+      <h2>Optimal Path Suggestion</h2>
+      <div id="optimalContent"></div>
+    </div>
+
+    <div class="pairing-section">
+      <h2>Pairing Process</h2>
+
+      <div class="first-toggle">
+        <label>Who picks table first?</label>
+        <button class="toggle-btn active" onclick="setTablePick('us')" id="toggleUs">We do</button>
+        <button class="toggle-btn" onclick="setTablePick('them')" id="toggleThem">They do</button>
+      </div>
+
+      <div class="step-info" id="stepInfo">
+        Press "Start Pairing" to begin.
+      </div>
+
+      <div id="pairingControls" style="display:none;"></div>
+
+      <div class="actions-row" style="margin-top:12px;">
+        <button class="action-btn primary" id="startBtn" onclick="startPairing()">Start Pairing</button>
+        <button class="action-btn danger" id="resetBtn" onclick="resetPairing()" style="display:none;">Reset Pairings</button>
+      </div>
+
+      <div class="pairings-log" id="pairingsLog" style="display:none;">
+        <h3>Confirmed Pairings</h3>
+        <div id="pairingsList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const NUM = 5;
+const MAX_GAMES = 10;
+const STORAGE_KEY = 'wh40k_pairing_v3';
+
+// Shared
+let ourTeamName = 'Old Grumpy Bastards';
+let ourArmies = ['Army 1','Army 2','Army 3','Army 4','Army 5'];
+
+// Per-game data
+function makeGame(idx) {
+  return {
+    theirTeamName: 'Opponent ' + (idx + 1),
+    theirArmies: ['Army 1','Army 2','Army 3','Army 4','Army 5'],
+    ratings: Array.from({length: NUM}, () => Array(NUM).fill('none')),
+    tablePick: 'us',
+    pairings: [],       // [{ours, theirs}, ...]
+  };
+}
+
+let games = [];
+for (let i = 0; i < 5; i++) games.push(makeGame(i));
+let activeGame = 0;
+
+// Transient pairing workflow state (not persisted)
+let pairingActive = false;
+let roundNum = 0;
+let pairedOurs = new Set();
+let pairedTheirs = new Set();
+let ourDefenderIdx = null;
+let theirDefenderIdx = null;
+let ourCounters = [];
+let theirCounters = [];
+let currentStep = null;
+
+function game() { return games[activeGame]; }
+
+// ========== PERSISTENCE ==========
+function saveState() {
+  ourTeamName = document.getElementById('ourTeamName').value;
+  const data = { ourTeamName, ourArmies, games, activeGame };
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d.ourTeamName) ourTeamName = d.ourTeamName;
+    if (d.ourArmies) ourArmies = d.ourArmies;
+    if (d.games) {
+      games = d.games;
+      // Pad to at least 5
+      while (games.length < 5) games.push(makeGame(games.length));
+    }
+    if (typeof d.activeGame === 'number') activeGame = d.activeGame;
+    document.getElementById('ourTeamName').value = ourTeamName;
+  } catch(e) {}
+}
+
+// ========== TABS ==========
+function renderTabs() {
+  const bar = document.getElementById('tabBar');
+  let html = '';
+  for (let i = 0; i < games.length; i++) {
+    const g = games[i];
+    const active = i === activeGame ? 'active' : '';
+    const done = g.pairings.length === 5 ? 'has-pairings' : '';
+    const label = g.theirTeamName || ('Game ' + (i+1));
+    html += `<div class="tab ${active} ${done}" onclick="switchGame(${i})">${esc(label)}</div>`;
+  }
+  html += `<div class="tab-actions">`;
+  if (games.length < MAX_GAMES) {
+    html += `<button onclick="addGame()">+ Add Game</button>`;
+  }
+  if (games.length > 1) {
+    html += `<button onclick="removeGame()">Remove Current</button>`;
+  }
+  html += `</div>`;
+  bar.innerHTML = html;
+}
+
+function switchGame(idx) {
+  // Save any transient pairing state? No — we reset workflow on switch
+  resetPairingQuiet();
+  activeGame = idx;
+  saveState();
+  loadGame();
+}
+
+function addGame() {
+  if (games.length >= MAX_GAMES) return;
+  games.push(makeGame(games.length));
+  activeGame = games.length - 1;
+  saveState();
+  loadGame();
+}
+
+function removeGame() {
+  if (games.length <= 1) return;
+  games.splice(activeGame, 1);
+  if (activeGame >= games.length) activeGame = games.length - 1;
+  saveState();
+  loadGame();
+}
+
+function loadGame() {
+  const g = game();
+  document.getElementById('theirTeamName').value = g.theirTeamName;
+  setTablePick(g.tablePick);
+  // Rebuild pairing state from saved pairings
+  pairedOurs = new Set();
+  pairedTheirs = new Set();
+  pairingActive = false;
+  g.pairings.forEach(p => { pairedOurs.add(p.ours); pairedTheirs.add(p.theirs); });
+  // Reset workflow UI
+  document.getElementById('startBtn').style.display = '';
+  document.getElementById('resetBtn').style.display = 'none';
+  document.getElementById('pairingControls').style.display = 'none';
+  document.getElementById('pairingControls').innerHTML = '';
+  document.getElementById('stepInfo').textContent = g.pairings.length === 5 ? 'All 5 pairings complete!' : 'Press "Start Pairing" to begin.';
+  if (g.pairings.length === 5) {
+    document.getElementById('startBtn').style.display = 'none';
+  }
+  document.getElementById('toggleUs').disabled = false;
+  document.getElementById('toggleThem').disabled = false;
+  renderTabs();
+  render();
+}
+
+// ========== OPTIMAL PATH ==========
+function ratingScore(c) {
+  return c === 'green' ? 3 : c === 'yellow' ? 2 : c === 'red' ? 0 : 1;
+}
+
+function computeOptimal() {
+  const g = game();
+  const ratings = g.ratings;
+  const theirArmies = g.theirArmies;
+  const container = document.getElementById('optimalContent');
+
+  const hasRatings = ratings.some(row => row.some(c => c !== 'none'));
+  if (!hasRatings) {
+    container.innerHTML = '<p style="color:#888;font-size:0.85rem;">Set matchup colors in the matrix to see suggestions.</p>';
+    return;
+  }
+
+  const perms = getPermutations([0,1,2,3,4]);
+  let bestScore = -1, bestPerm = null;
+  for (const perm of perms) {
+    let score = 0;
+    for (let i = 0; i < NUM; i++) score += ratingScore(ratings[i][perm[i]]);
+    if (score > bestScore) { bestScore = score; bestPerm = perm; }
+  }
+
+  const defenderScores = [];
+  for (let i = 0; i < NUM; i++) {
+    const row = ratings[i];
+    const available = row.filter((_, j) => !pairedTheirs.has(j));
+    const scores = available.map(c => ratingScore(c));
+    const minScore = Math.min(...scores);
+    const avgScore = scores.reduce((a,b) => a+b, 0) / scores.length;
+    defenderScores.push({ idx: i, minScore, avgScore, safeScore: minScore * 2 + avgScore });
+  }
+  defenderScores.sort((a,b) => b.safeScore - a.safeScore);
+
+  const attackerScores = [];
+  for (let i = 0; i < NUM; i++) {
+    const row = ratings[i];
+    const available = row.filter((_, j) => !pairedTheirs.has(j));
+    const scores = available.map(c => ratingScore(c));
+    const maxScore = Math.max(...scores);
+    const spread = maxScore - Math.min(...scores);
+    attackerScores.push({ idx: i, maxScore, spread, attackScore: maxScore * 2 + spread });
+  }
+  attackerScores.sort((a,b) => b.attackScore - a.attackScore);
+
+  const maxPossible = NUM * 3;
+  const pctLabel = Math.round(bestScore / maxPossible * 100);
+
+  let html = `<div class="optimal-assignment"><h4 style="font-size:0.9rem;color:#c4a44a;margin-bottom:8px;">Best Matchup Assignment</h4>`;
+  for (let i = 0; i < NUM; i++) {
+    const j = bestPerm[i];
+    const c = ratings[i][j];
+    html += `<div class="optimal-entry">
+      <span class="matchup-color" style="background:${colorBg(c)}"></span>
+      <span>${esc(ourArmies[i])}</span>
+      <span style="color:#888;">vs</span>
+      <span>${esc(theirArmies[j])}</span>
+      <span style="color:#666;font-size:0.8rem;">(${colorLabel(c) || '?'})</span>
+    </div>`;
+  }
+  html += `<div class="score-total">Total score: ${bestScore}/${maxPossible} (${pctLabel}%)</div></div>`;
+
+  html += `<div class="defender-rec"><h4>Defender Ranking (safest to put forward)</h4>
+    <p style="font-size:0.78rem;color:#888;margin-bottom:6px;">Armies with the best worst-case matchups — hard for opponents to counter.</p>`;
+  for (const d of defenderScores) {
+    if (pairedOurs.has(d.idx)) continue;
+    const worstLabel = d.minScore >= 3 ? 'Green' : d.minScore >= 2 ? 'Yellow' : d.minScore >= 1 ? 'Neutral' : 'Red';
+    html += `<div class="rec-item">
+      <span class="rec-rank">${defenderScores.indexOf(d)+1}.</span>
+      ${esc(ourArmies[d.idx])}
+      <span class="rec-score">worst case: ${worstLabel} · avg: ${d.avgScore.toFixed(1)}</span>
+    </div>`;
+  }
+  html += `</div>`;
+
+  html += `<div class="defender-rec" style="margin-top:10px;"><h4>Counter Ranking (best as attackers)</h4>
+    <p style="font-size:0.78rem;color:#888;margin-bottom:6px;">Specialist armies with strong specific matchups — best saved for countering.</p>`;
+  for (const a of attackerScores) {
+    if (pairedOurs.has(a.idx)) continue;
+    let bestTarget = -1, bestTargetScore = -1;
+    for (let j = 0; j < NUM; j++) {
+      if (pairedTheirs.has(j)) continue;
+      const s = ratingScore(ratings[a.idx][j]);
+      if (s > bestTargetScore) { bestTargetScore = s; bestTarget = j; }
+    }
+    const targetName = bestTarget >= 0 ? theirArmies[bestTarget] : '?';
+    html += `<div class="rec-item">
+      <span class="rec-rank">${attackerScores.indexOf(a)+1}.</span>
+      ${esc(ourArmies[a.idx])}
+      <span class="rec-score">best target: ${esc(targetName)} · spread: ${a.spread}</span>
+    </div>`;
+  }
+  html += `</div>`;
+
+  container.innerHTML = html;
+}
+
+function getPermutations(arr) {
+  if (arr.length <= 1) return [arr];
+  const result = [];
+  for (let i = 0; i < arr.length; i++) {
+    const rest = [...arr.slice(0,i), ...arr.slice(i+1)];
+    for (const perm of getPermutations(rest)) result.push([arr[i], ...perm]);
+  }
+  return result;
+}
+
+// ========== MATRIX ==========
+function setTablePick(who) {
+  game().tablePick = who;
+  document.getElementById('toggleUs').classList.toggle('active', who === 'us');
+  document.getElementById('toggleThem').classList.toggle('active', who === 'them');
+  saveState();
+}
+
+function cycleColor(i, j) {
+  if (pairedOurs.has(i) || pairedTheirs.has(j)) return;
+  const g = game();
+  const order = ['none','green','yellow','red'];
+  const cur = order.indexOf(g.ratings[i][j]);
+  g.ratings[i][j] = order[(cur + 1) % order.length];
+  saveState();
+  render();
+}
+
+function colorLabel(c) {
+  return c === 'none' ? '' : c === 'green' ? 'Good' : c === 'yellow' ? 'Even' : 'Bad';
+}
+function colorBg(c) {
+  return c === 'green' ? '#2d6a2d' : c === 'yellow' ? '#7a6a1a' : c === 'red' ? '#6a2d2d' : '#2a2a3e';
+}
+
+function updateArmyName(side, idx, val) {
+  if (side === 'ours') { ourArmies[idx] = val; }
+  else { game().theirArmies[idx] = val; }
+  saveState();
+  computeOptimal();
+}
+
+function render() {
+  const g = game();
+  const ratings = g.ratings;
+  const theirArmies = g.theirArmies;
+  const pairings = g.pairings;
+
+  const matchedCells = Array.from({length: NUM}, () => Array(NUM).fill(0));
+  pairings.forEach((p, idx) => { matchedCells[p.ours][p.theirs] = idx + 1; });
+
+  const table = document.getElementById('matrixTable');
+  let html = '<tr><th class="corner"></th>';
+  for (let j = 0; j < NUM; j++) {
+    html += `<th class="their-header">
+      <input class="army-input" value="${esc(theirArmies[j])}" onchange="updateArmyName('theirs',${j},this.value)">
+    </th>`;
+  }
+  html += '</tr>';
+  for (let i = 0; i < NUM; i++) {
+    html += `<tr><th class="our-header">
+      <input class="army-input" value="${esc(ourArmies[i])}" onchange="updateArmyName('ours',${i},this.value)">
+    </th>`;
+    for (let j = 0; j < NUM; j++) {
+      const r = ratings[i][j];
+      const matchNum = matchedCells[i][j];
+      if (matchNum > 0) {
+        html += `<td class="color-cell ${r} matched" data-match-num="#${matchNum}">${colorLabel(r)}</td>`;
+      } else if (pairedOurs.has(i) || pairedTheirs.has(j)) {
+        html += `<td class="color-cell ${r} faded">${colorLabel(r)}</td>`;
+      } else {
+        html += `<td class="color-cell ${r}" onclick="cycleColor(${i},${j})">${colorLabel(r)}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+  table.innerHTML = html;
+
+  // Pairings log
+  const logDiv = document.getElementById('pairingsLog');
+  const listDiv = document.getElementById('pairingsList');
+  if (pairings.length > 0) {
+    logDiv.style.display = 'block';
+    listDiv.innerHTML = pairings.map((p, idx) => {
+      const c = ratings[p.ours][p.theirs];
+      return `<div class="pairing-entry">
+        <span class="round-num">${idx+1}.</span>
+        <span>${esc(ourArmies[p.ours])}</span>
+        <span class="vs">vs</span>
+        <span>${esc(theirArmies[p.theirs])}</span>
+        <span class="matchup-color" style="background:${colorBg(c)}"></span>
+      </div>`;
+    }).join('');
+  } else {
+    logDiv.style.display = 'none';
+  }
+
+  computeOptimal();
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function availableOurs() { return [...Array(NUM).keys()].filter(i => !pairedOurs.has(i)); }
+function availableTheirs() { return [...Array(NUM).keys()].filter(j => !pairedTheirs.has(j)); }
+
+// ========== PAIRING WORKFLOW ==========
+function startPairing() {
+  const g = game();
+  pairingActive = true;
+  roundNum = 0;
+  g.pairings = [];
+  pairedOurs = new Set();
+  pairedTheirs = new Set();
+  saveState();
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('resetBtn').style.display = '';
+  document.getElementById('toggleUs').disabled = true;
+  document.getElementById('toggleThem').disabled = true;
+  beginRound();
+}
+
+function resetPairingQuiet() {
+  pairingActive = false;
+  roundNum = 0;
+  currentStep = null;
+}
+
+function resetPairing() {
+  const g = game();
+  pairingActive = false;
+  g.pairings = [];
+  pairedOurs = new Set();
+  pairedTheirs = new Set();
+  roundNum = 0;
+  currentStep = null;
+  saveState();
+  document.getElementById('startBtn').style.display = '';
+  document.getElementById('resetBtn').style.display = 'none';
+  document.getElementById('pairingControls').style.display = 'none';
+  document.getElementById('pairingControls').innerHTML = '';
+  document.getElementById('stepInfo').textContent = 'Press "Start Pairing" to begin.';
+  document.getElementById('toggleUs').disabled = false;
+  document.getElementById('toggleThem').disabled = false;
+  renderTabs();
+  render();
+}
+
+function beginRound() {
+  const g = game();
+  const ao = availableOurs();
+  const at = availableTheirs();
+
+  if (ao.length === 1 && at.length === 1) {
+    g.pairings.push({ours: ao[0], theirs: at[0]});
+    pairedOurs.add(ao[0]);
+    pairedTheirs.add(at[0]);
+    saveState();
+    document.getElementById('stepInfo').innerHTML = `<strong>All 5 pairings complete!</strong>`;
+    document.getElementById('pairingControls').style.display = 'none';
+    document.getElementById('pairingControls').innerHTML = '';
+    document.getElementById('resetBtn').style.display = 'none';
+    renderTabs();
+    render();
+    return;
+  }
+
+  ourDefenderIdx = null;
+  theirDefenderIdx = null;
+  ourCounters = [];
+  theirCounters = [];
+  currentStep = 'defenders';
+  renderStep();
+}
+
+function renderStep() {
+  const g = game();
+  const ratings = g.ratings;
+  const theirArmies = g.theirArmies;
+  const info = document.getElementById('stepInfo');
+  const ctrl = document.getElementById('pairingControls');
+  ctrl.style.display = '';
+  const ao = availableOurs();
+  const at = availableTheirs();
+
+  if (currentStep === 'defenders') {
+    info.innerHTML = `<strong>Round ${roundNum + 1}:</strong> Both teams put forward a defender simultaneously.`;
+    ctrl.innerHTML = `
+      <div class="parallel-cols">
+        <div class="col-panel us-panel">
+          <h4>Our Defender</h4>
+          <div class="army-buttons">${ao.map(i =>
+            `<button class="army-btn ${ourDefenderIdx===i?'selected':''}" onclick="selectOurDefender(${i})">${esc(ourArmies[i])}</button>`
+          ).join('')}</div>
+        </div>
+        <div class="col-panel them-panel">
+          <h4>Their Defender</h4>
+          <div class="army-buttons">${at.map(j =>
+            `<button class="army-btn ${theirDefenderIdx===j?'selected':''}" onclick="selectTheirDefender(${j})">${esc(theirArmies[j])}</button>`
+          ).join('')}</div>
+        </div>
+      </div>
+      <div class="actions-row">
+        <button class="action-btn primary" onclick="confirmDefenders()" ${ourDefenderIdx===null||theirDefenderIdx===null?'disabled':''}>Confirm Defenders</button>
+      </div>`;
+  }
+  else if (currentStep === 'counters') {
+    const ourAvailForCounter = ao.filter(i => i !== ourDefenderIdx);
+    const theirAvailForCounter = at.filter(j => j !== theirDefenderIdx);
+    info.innerHTML = `<strong>Round ${roundNum + 1}:</strong> Defenders: <em>${esc(ourArmies[ourDefenderIdx])}</em> (us) &amp; <em>${esc(theirArmies[theirDefenderIdx])}</em> (them). Both teams counter with 2.`;
+    ctrl.innerHTML = `
+      <div class="parallel-cols">
+        <div class="col-panel us-panel">
+          <h4>Our 2 counters vs <em>${esc(theirArmies[theirDefenderIdx])}</em></h4>
+          <div class="army-buttons">${ourAvailForCounter.map(i => {
+            const c = ratings[i][theirDefenderIdx];
+            const tag = colorLabel(c) ? ` (${colorLabel(c)})` : '';
+            return `<button class="army-btn ${ourCounters.includes(i)?'counter-selected':''}" onclick="toggleOurCounter(${i})">${esc(ourArmies[i])}${tag}</button>`;
+          }).join('')}</div>
+        </div>
+        <div class="col-panel them-panel">
+          <h4>Their 2 counters vs <em>${esc(ourArmies[ourDefenderIdx])}</em></h4>
+          <div class="army-buttons">${theirAvailForCounter.map(j => {
+            const c = ratings[ourDefenderIdx][j];
+            const tag = colorLabel(c) ? ` (${colorLabel(c)})` : '';
+            return `<button class="army-btn ${theirCounters.includes(j)?'counter-selected':''}" onclick="toggleTheirCounter(${j})">${esc(theirArmies[j])}${tag}</button>`;
+          }).join('')}</div>
+        </div>
+      </div>
+      <div class="actions-row">
+        <button class="action-btn primary" onclick="confirmCounters()" ${ourCounters.length!==2||theirCounters.length!==2?'disabled':''}>Confirm Counters</button>
+      </div>`;
+  }
+  else if (currentStep === 'pick1') {
+    renderPickStep(g.tablePick, 'pick1');
+  }
+  else if (currentStep === 'pick2') {
+    renderPickStep(g.tablePick === 'us' ? 'them' : 'us', 'pick2');
+  }
+}
+
+function renderPickStep(picker, stepId) {
+  const g = game();
+  const ratings = g.ratings;
+  const theirArmies = g.theirArmies;
+  const info = document.getElementById('stepInfo');
+  const ctrl = document.getElementById('pairingControls');
+
+  if (picker === 'us') {
+    info.innerHTML = `<strong>Round ${roundNum + 1} – ${stepId==='pick1'?'First':'Second'} Pick:</strong> WE pick which counter faces our <em>${esc(ourArmies[ourDefenderIdx])}</em>.`;
+    const matchups = theirCounters.map(j => {
+      const c = ratings[ourDefenderIdx][j];
+      const label = colorLabel(c) || '?';
+      const bg = colorBg(c);
+      return `<button class="pick-btn" onclick="makePick('us',${j})" style="border-color:${bg};background:${bg};">
+        ${esc(theirArmies[j])}<br><small style="opacity:0.8">${label} for us</small>
+      </button>`;
+    });
+    ctrl.innerHTML = `
+      <div class="summary-box"><span class="defender-label">Our defender:</span> ${esc(ourArmies[ourDefenderIdx])} — countered by: ${theirCounters.map(j=>esc(theirArmies[j])).join(' & ')}</div>
+      <p style="font-size:0.85rem;margin-bottom:8px;">Pick which counter our defender plays against:</p>
+      <div class="army-buttons">${matchups.join('')}</div>`;
+  } else {
+    info.innerHTML = `<strong>Round ${roundNum + 1} – ${stepId==='pick1'?'First':'Second'} Pick:</strong> THEY pick which counter faces their <em>${esc(theirArmies[theirDefenderIdx])}</em>.`;
+    const matchups = ourCounters.map(i => {
+      const c = ratings[i][theirDefenderIdx];
+      const label = colorLabel(c) || '?';
+      const bg = colorBg(c);
+      return `<button class="pick-btn" onclick="makePick('them',${i})" style="border-color:${bg};background:${bg};">
+        ${esc(ourArmies[i])}<br><small style="opacity:0.8">${label} for us</small>
+      </button>`;
+    });
+    ctrl.innerHTML = `
+      <div class="summary-box"><span class="defender-label">Their defender:</span> ${esc(theirArmies[theirDefenderIdx])} — countered by: ${ourCounters.map(i=>esc(ourArmies[i])).join(' & ')}</div>
+      <p style="font-size:0.85rem;margin-bottom:8px;">They pick which of our counters plays their defender:</p>
+      <div class="army-buttons">${matchups.join('')}</div>`;
+  }
+}
+
+function selectOurDefender(i) { ourDefenderIdx = i; renderStep(); }
+function selectTheirDefender(j) { theirDefenderIdx = j; renderStep(); }
+
+function confirmDefenders() {
+  if (ourDefenderIdx === null || theirDefenderIdx === null) return;
+  currentStep = 'counters';
+  ourCounters = [];
+  theirCounters = [];
+  renderStep();
+}
+
+function toggleOurCounter(i) {
+  if (ourCounters.includes(i)) ourCounters = ourCounters.filter(x => x !== i);
+  else if (ourCounters.length < 2) ourCounters.push(i);
+  renderStep();
+}
+
+function toggleTheirCounter(j) {
+  if (theirCounters.includes(j)) theirCounters = theirCounters.filter(x => x !== j);
+  else if (theirCounters.length < 2) theirCounters.push(j);
+  renderStep();
+}
+
+function confirmCounters() {
+  if (ourCounters.length !== 2 || theirCounters.length !== 2) return;
+  currentStep = 'pick1';
+  renderStep();
+}
+
+function makePick(picker, chosenIdx) {
+  const g = game();
+  if (picker === 'us') {
+    g.pairings.push({ours: ourDefenderIdx, theirs: chosenIdx});
+    pairedOurs.add(ourDefenderIdx);
+    pairedTheirs.add(chosenIdx);
+    theirCounters = theirCounters.filter(j => j !== chosenIdx);
+  } else {
+    g.pairings.push({ours: chosenIdx, theirs: theirDefenderIdx});
+    pairedOurs.add(chosenIdx);
+    pairedTheirs.add(theirDefenderIdx);
+    ourCounters = ourCounters.filter(i => i !== chosenIdx);
+  }
+  saveState();
+  render();
+
+  if (currentStep === 'pick1') {
+    currentStep = 'pick2';
+    renderStep();
+  } else {
+    roundNum++;
+    beginRound();
+  }
+}
+
+// ========== INIT ==========
+loadState();
+loadGame();
+</script>
+
+</body>
+</html>
