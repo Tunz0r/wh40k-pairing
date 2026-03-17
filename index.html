@@ -594,7 +594,10 @@ const GH_DEFAULT_TOKEN = ['ghp','_MXNwfMnkOLZ0','3k1Pdro1VjNY6','pmr3j13m1XQ'].j
 
 function getGhToken() {
   if (ghToken) return ghToken;
-  try { ghToken = localStorage.getItem(GH_TOKEN_KEY) || ''; } catch(e) {}
+  try {
+    const stored = localStorage.getItem(GH_TOKEN_KEY);
+    if (stored && stored !== GH_DEFAULT_TOKEN) ghToken = stored;
+  } catch(e) {}
   if (!ghToken) ghToken = GH_DEFAULT_TOKEN;
   return ghToken;
 }
