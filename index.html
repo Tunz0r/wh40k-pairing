@@ -1303,13 +1303,13 @@ function renderMapSelect() {
   const filteredMaps = allMaps.filter(m => !usedMaps.has(m.id));
   const canConfirm = selMapId;
 
+  const ourIdx = pendingPairing ? pendingPairing.ours : -1;
   let mapGridHtml = '';
   if (!dep) {
     mapGridHtml = '<div class="map-no-results">Set deployment type in Round Settings above to see maps</div>';
   } else if (filteredMaps.length === 0) {
     mapGridHtml = '<div class="map-no-results">No available maps for this deployment (all used)</div>';
   } else {
-    const ourIdx = pendingPairing ? pendingPairing.ours : -1;
     mapGridHtml = '<div class="map-grid">' + filteredMaps.map(m => {
       const mid = m.id;
       const sel = selMapId === mid ? 'selected' : '';
