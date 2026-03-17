@@ -174,6 +174,7 @@
   }
   .mode-toggle button:first-child { border-radius: 6px 0 0 6px; }
   .mode-toggle button:last-child { border-radius: 0 6px 6px 0; }
+  .mode-toggle button:not(:first-child):not(:last-child) { border-radius: 0; }
   .mode-toggle button.active { color: #c4a44a; border-color: #c4a44a; background: #1a1a2e; }
   .mode-toggle button:hover:not(.active) { color: #e0e0e0; border-color: #555; }
 
@@ -182,6 +183,26 @@
   .scout-import-bar select { background: #1a1a2e; border: 1px solid #444; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 0.82rem; min-width: 180px; }
   .scout-import-bar button { padding: 4px 12px; border: 1px solid #444; background: #2a2a3e; color: #ccc; border-radius: 4px; cursor: pointer; font-size: 0.78rem; font-weight: 600; }
   .scout-import-bar button:hover { border-color: #c4a44a; color: #c4a44a; }
+
+  /* Map Preferences */
+  .map-pref-table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+  .map-pref-table th { background: #16213e; padding: 6px 8px; font-size: 0.78rem; font-weight: 600; border: 1px solid #333; white-space: nowrap; }
+  .map-pref-table td { border: 1px solid #333; text-align: center; padding: 0; }
+  .map-pref-table td.map-name-cell { text-align: left; padding: 6px 8px; font-size: 0.8rem; white-space: nowrap; background: #1a1a2e; min-width: 100px; }
+  .pref-cell { width: 80px; height: 36px; cursor: pointer; transition: all 0.15s; font-size: 0.8rem; font-weight: 700; user-select: none; }
+  .pref-cell:hover { filter: brightness(1.3); }
+  .pref-cell.none { background: #2a2a3e; color: #555; }
+  .pref-cell.green { background: #2d6a2d; color: #8f8; }
+  .pref-cell.red { background: #6a2d2d; color: #f88; }
+  .map-pref-indicator { display: inline-flex; align-items: center; gap: 3px; font-size: 0.68rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-left: 4px; vertical-align: middle; }
+  .map-pref-indicator.good { background: #2d6a2d; color: #8f8; }
+  .map-pref-indicator.bad { background: #6a2d2d; color: #f88; }
+  .map-card .map-pref-row { display: flex; justify-content: center; gap: 3px; padding: 2px 4px; background: #1a1a2e; }
+  .map-card .map-pref-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .map-card .map-pref-dot.green { background: #4a9; }
+  .map-card .map-pref-dot.red { background: #f66; }
+  .map-card .map-pref-dot.none { background: #444; }
+  .map-card .map-pref-dot.highlight { box-shadow: 0 0 4px 1px #c4a44a; outline: 1px solid #c4a44a; }
 
   /* Login overlay */
   .login-overlay {
@@ -245,6 +266,7 @@
   <div class="mode-toggle">
     <button id="modeRounds" class="active" onclick="setMode('rounds')">Rounds</button>
     <button id="modeScouts" onclick="setMode('scouts')">Scouting / Prep</button>
+    <button id="modeMaps" onclick="setMode('maps')">Map Prefs</button>
   </div>
 
   <!-- ROUNDS MODE -->
@@ -308,6 +330,28 @@
     </div>
   </div>
   </div><!-- end roundsMode -->
+
+  <!-- MAP PREFERENCES MODE -->
+  <div id="mapsMode" style="display:none;">
+    <div style="background:#16213e;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <h2 style="font-size:1.1rem;color:#c4a44a;margin-bottom:12px;">Map Preferences</h2>
+      <p style="font-size:0.82rem;color:#888;margin-bottom:12px;">Rate how good each map is for each of your armies. Click once = <span style="color:#8f8;">Good</span>, click again = <span style="color:#f88;">Bad</span>, click again = neutral.</p>
+      <div class="map-selectors" style="margin-bottom:16px;">
+        <div class="sel-group">
+          <label>Map Pack</label>
+          <select id="mapPrefPack" onchange="renderMapPrefs()">
+          </select>
+        </div>
+        <div class="sel-group">
+          <label>Deployment</label>
+          <select id="mapPrefDep" onchange="renderMapPrefs()">
+            <option value="">-- Select Deployment --</option>
+          </select>
+        </div>
+      </div>
+      <div id="mapPrefsContent"></div>
+    </div>
+  </div>
 
   <!-- SCOUTING MODE -->
   <div id="scoutsMode" style="display:none;">
@@ -510,7 +554,8 @@ function makeScout(idx) {
 
 let scouts = [];
 let activeScout = 0;
-let appMode = 'rounds'; // 'rounds' or 'scouts'
+let appMode = 'rounds'; // 'rounds', 'scouts', or 'maps'
+let mapPrefs = {}; // key: "packId/mapId" → array of NUM ratings ('none'/'green'/'red')
 
 function scout() { return scouts[activeScout]; }
 
@@ -555,7 +600,7 @@ function setSyncStatus(text, cls) {
 
 function buildPayload() {
   lastLocalTs = Date.now();
-  return { ourTeamName, ourArmies, games, activeGame, scouts, ts: lastLocalTs };
+  return { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, ts: lastLocalTs };
 }
 
 function localHasData() {
@@ -582,10 +627,14 @@ function applyPayload(data) {
   if (Array.isArray(data.scouts)) {
     scouts = data.scouts;
   }
+  if (data.mapPrefs && typeof data.mapPrefs === 'object') {
+    mapPrefs = data.mapPrefs;
+  }
   lastRemoteTs = data.ts || 0;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame, scouts })); } catch(e) {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs })); } catch(e) {}
   loadGame();
   if (appMode === 'scouts' && scouts.length > 0) loadScout();
+  if (appMode === 'maps') renderMapPrefs();
   renderScoutImportOptions();
   suppressRemote = false;
 }
@@ -727,7 +776,7 @@ async function setGhToken() {
 function saveState() {
   ourTeamName = document.getElementById('ourTeamName').value;
   lastLocalTs = Date.now(); // Mark local change immediately so polls don't overwrite
-  const data = { ourTeamName, ourArmies, games, activeGame, scouts };
+  const data = { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
   // Push to cloud
   if (!suppressRemote) debouncedPush();
@@ -745,6 +794,7 @@ function loadState() {
       while (games.length < 5) games.push(makeGame(games.length));
     }
     if (d.scouts) scouts = d.scouts;
+    if (d.mapPrefs) mapPrefs = d.mapPrefs;
     if (typeof d.activeGame === 'number') activeGame = d.activeGame;
     document.getElementById('ourTeamName').value = ourTeamName;
   } catch(e) {}
@@ -828,11 +878,17 @@ function setMode(mode) {
   appMode = mode;
   document.getElementById('modeRounds').className = mode === 'rounds' ? 'active' : '';
   document.getElementById('modeScouts').className = mode === 'scouts' ? 'active' : '';
+  document.getElementById('modeMaps').className = mode === 'maps' ? 'active' : '';
   document.getElementById('roundsMode').style.display = mode === 'rounds' ? '' : 'none';
   document.getElementById('scoutsMode').style.display = mode === 'scouts' ? '' : 'none';
+  document.getElementById('mapsMode').style.display = mode === 'maps' ? '' : 'none';
   if (mode === 'scouts') {
     if (scouts.length === 0) { scouts.push(makeScout(0)); saveState(); }
     loadScout();
+  }
+  if (mode === 'maps') {
+    initMapPrefsDropdowns();
+    renderMapPrefs();
   }
 }
 
@@ -977,6 +1033,96 @@ function importScout() {
   loadGame();
 }
 
+// ========== MAP PREFERENCES ==========
+function getMapPref(packId, mapId, armyIdx) {
+  const key = packId + '/' + mapId;
+  if (!mapPrefs[key]) return 'none';
+  return mapPrefs[key][armyIdx] || 'none';
+}
+
+function setMapPref(packId, mapId, armyIdx, val) {
+  const key = packId + '/' + mapId;
+  if (!mapPrefs[key]) mapPrefs[key] = Array(NUM).fill('none');
+  mapPrefs[key][armyIdx] = val;
+}
+
+function initMapPrefsDropdowns() {
+  const packSel = document.getElementById('mapPrefPack');
+  const depSel = document.getElementById('mapPrefDep');
+  const curPack = packSel.value || 'wtc2025';
+  const curDep = depSel.value || '';
+  packSel.innerHTML = Object.entries(MAP_PACKS).map(([k,v]) =>
+    `<option value="${k}" ${curPack===k?'selected':''}>${v.name}</option>`
+  ).join('');
+  depSel.innerHTML = '<option value="">-- All Deployments --</option>' +
+    DEPLOYMENTS.map(d => `<option value="${d}" ${curDep===d?'selected':''}>${d}</option>`).join('');
+}
+
+function renderMapPrefs() {
+  const packSel = document.getElementById('mapPrefPack');
+  const depSel = document.getElementById('mapPrefDep');
+  if (!packSel || !depSel) return;
+  const packId = packSel.value || 'wtc2025';
+  const dep = depSel.value;
+  const container = document.getElementById('mapPrefsContent');
+  const pack = MAP_PACKS[packId];
+  if (!pack) { container.innerHTML = ''; return; }
+
+  // Get maps — all or filtered by deployment
+  let maps = dep ? getMapsForDeployment(packId, dep) : pack.maps;
+  if (maps.length === 0) {
+    container.innerHTML = '<p style="color:#888;font-size:0.85rem;">No maps found.</p>';
+    return;
+  }
+
+  // Group by deployment for display
+  const groups = {};
+  for (const m of maps) {
+    const deps = Array.isArray(m.d) ? m.d : [m.d];
+    const depKey = dep || deps[0];
+    if (!groups[depKey]) groups[depKey] = [];
+    groups[depKey].push(m);
+  }
+
+  let html = '';
+  for (const [depName, depMaps] of Object.entries(groups)) {
+    if (!dep) html += `<h3 style="font-size:0.9rem;color:#c4a44a;margin:12px 0 6px;">${esc(depName)}</h3>`;
+    html += '<div class="matrix-wrapper"><table class="map-pref-table"><thead><tr><th>Map</th>';
+    for (let i = 0; i < NUM; i++) html += `<th>${esc(ourArmies[i])}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const m of depMaps) {
+      const lbl = mapLabel(packId, m.id);
+      html += `<tr><td class="map-name-cell">${esc(lbl)}</td>`;
+      for (let i = 0; i < NUM; i++) {
+        const pref = getMapPref(packId, m.id, i);
+        const label = pref === 'green' ? '\u2713' : pref === 'red' ? '\u2717' : '';
+        html += `<td class="pref-cell ${pref}" onclick="cycleMapPref('${packId}','${m.id}',${i})">${label}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+  container.innerHTML = html;
+}
+
+function cycleMapPref(packId, mapId, armyIdx) {
+  const cur = getMapPref(packId, mapId, armyIdx);
+  const order = ['none', 'green', 'red'];
+  const next = order[(order.indexOf(cur) + 1) % 3];
+  setMapPref(packId, mapId, armyIdx, next);
+  saveState();
+  renderMapPrefs();
+}
+
+// Get pref indicator HTML for a map + army
+function mapPrefIndicator(packId, mapId, armyIdx, label) {
+  const pref = getMapPref(packId, mapId, armyIdx);
+  if (pref === 'none') return '';
+  const cls = pref === 'green' ? 'good' : 'bad';
+  const txt = pref === 'green' ? '\u2713' : '\u2717';
+  return `<span class="map-pref-indicator ${cls}" title="${esc(label)}: ${pref === 'green' ? 'Good' : 'Bad'} map">${txt} ${esc(label)}</span>`;
+}
+
 // ========== OPTIMAL PATH ==========
 function ratingScore(c) { return c === 'green' ? 3 : c === 'yellow' ? 2 : c === 'red' ? 0 : 1; }
 
@@ -1086,14 +1232,18 @@ function render() {
     listDiv.innerHTML=pairings.map((p,i)=>{
       const c=ratings[p.ours][p.theirs];
       let mapInfo = '';
-      if (p.mapId) mapInfo = mapLabel(p.mapPack||'wtc2025', p.mapId);
+      let mapPrefHtml = '';
+      if (p.mapId) {
+        mapInfo = mapLabel(p.mapPack||'wtc2025', p.mapId);
+        mapPrefHtml = mapPrefIndicator(p.mapPack||'wtc2025', p.mapId, p.ours, ourArmies[p.ours]);
+      }
       return `<div class="pairing-entry">
         <span class="round-num">${i+1}.</span>
         <span>${esc(ourArmies[p.ours])}</span>
         <span class="vs">vs</span>
         <span>${esc(theirArmies[p.theirs])}</span>
         <span class="matchup-color" style="background:${colorBg(c)}"></span>
-        ${mapInfo ? `<span class="map-info">${esc(mapInfo)}</span>` : ''}
+        ${mapInfo ? `<span class="map-info">${esc(mapInfo)} ${mapPrefHtml}</span>` : ''}
       </div>`;
     }).join('');
   }
@@ -1165,21 +1315,33 @@ function renderMapSelect() {
   } else if (filteredMaps.length === 0) {
     mapGridHtml = '<div class="map-no-results">No available maps for this deployment (all used)</div>';
   } else {
+    const ourIdx = pendingPairing ? pendingPairing.ours : -1;
     mapGridHtml = '<div class="map-grid">' + filteredMaps.map(m => {
       const mid = m.id;
       const sel = selMapId === mid ? 'selected' : '';
       const url = mapImageUrl(selMapPack, mid);
       const lbl = mapLabel(selMapPack, mid);
+      // Show pref dots for our army in this matchup
+      let prefDots = '';
+      if (ourIdx >= 0) {
+        const pref = getMapPref(selMapPack, mid, ourIdx);
+        if (pref !== 'none') {
+          prefDots = `<div class="map-pref-row"><span class="map-pref-dot ${pref} highlight" title="${esc(ourArmies[ourIdx])}: ${pref==='green'?'Good':'Bad'}"></span></div>`;
+        }
+      }
       return `<div class="map-card ${sel}" onclick="selectMap('${mid}')">
         <img src="${url}" alt="${esc(lbl)}" loading="lazy" onerror="this.style.display='none'">
         <div class="map-label">${esc(lbl)}</div>
+        ${prefDots}
       </div>`;
     }).join('') + '</div>';
   }
 
   let previewHtml = '';
   if (selMapId && dep) {
-    previewHtml = `<div class="map-preview"><img src="${mapImageUrl(selMapPack, selMapId)}" alt="Selected map" onerror="this.style.display='none'"></div>`;
+    let prefInfo = '';
+    if (ourIdx >= 0) prefInfo += mapPrefIndicator(selMapPack, selMapId, ourIdx, ourArmies[ourIdx]);
+    previewHtml = `<div class="map-preview"><img src="${mapImageUrl(selMapPack, selMapId)}" alt="Selected map" onerror="this.style.display='none'">${prefInfo ? '<div style="margin-top:6px;">' + prefInfo + '</div>' : ''}</div>`;
   }
 
   ctrl.innerHTML = `
