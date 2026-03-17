@@ -211,6 +211,14 @@
   .map-card .map-pref-dot.red { background: #f66; }
   .map-card .map-pref-dot.none { background: #444; }
   .map-card .map-pref-dot.highlight { box-shadow: 0 0 4px 1px #c4a44a; outline: 1px solid #c4a44a; }
+  .map-card.shooting-bad img { filter: sepia(1) saturate(3) hue-rotate(-20deg) brightness(0.7); }
+  .map-card.shooting-bad .map-label { color: #f88; }
+  .shooting-flag-cell { width: 50px; height: 36px; cursor: pointer; transition: all 0.15s; font-size: 0.9rem; user-select: none; }
+  .shooting-flag-cell:hover { filter: brightness(1.3); }
+  .shooting-flag-cell.active { background: #6a2d2d; color: #f88; }
+  .shooting-flag-cell.inactive { background: #2a2a3e; color: #555; }
+  .shooting-warning { display: inline-flex; align-items: center; gap: 3px; font-size: 0.68rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #6a2d2d; color: #f88; margin-left: 4px; vertical-align: middle; }
+  .map-preview.shooting-bad img { filter: sepia(1) saturate(3) hue-rotate(-20deg) brightness(0.7); }
 
   /* Login overlay */
   .login-overlay {
@@ -343,7 +351,7 @@
   <div id="mapsMode" style="display:none;">
     <div style="background:#16213e;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:16px;">
       <h2 style="font-size:1.1rem;color:#c4a44a;margin-bottom:12px;">Map Preferences</h2>
-      <p style="font-size:0.82rem;color:#888;margin-bottom:12px;">Rate how good each map is for each of your armies. Click once = <span style="color:#8f8;">Good</span>, click again = <span style="color:#f88;">Bad</span>, click again = neutral.</p>
+      <p style="font-size:0.82rem;color:#888;margin-bottom:12px;">Rate how good each map is for each of your armies. Click once = <span style="color:#8f8;">Good</span>, click again = <span style="color:#f88;">Bad</span>, click again = neutral. Use the <span style="color:#f88;">&#x1F3AF;</span> column to flag maps that are bad against heavy shooting armies.</p>
       <div class="map-selectors" style="margin-bottom:16px;">
         <div class="sel-group">
           <label>Map Pack</label>
@@ -559,6 +567,7 @@ let scouts = [];
 let activeScout = 0;
 let appMode = 'rounds'; // 'rounds', 'scouts', or 'maps'
 let mapPrefs = {}; // key: "packId/mapId" → array of NUM ratings ('none'/'green'/'red')
+let mapFlags = {}; // key: "packId/mapId" → {shooting: true} — global flags per map
 
 function scout() { return scouts[activeScout]; }
 
@@ -603,7 +612,7 @@ function setSyncStatus(text, cls) {
 
 function buildPayload() {
   lastLocalTs = Date.now();
-  return { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, ts: lastLocalTs };
+  return { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, mapFlags, ts: lastLocalTs };
 }
 
 function localHasData() {
@@ -633,8 +642,11 @@ function applyPayload(data) {
   if (data.mapPrefs && typeof data.mapPrefs === 'object') {
     mapPrefs = data.mapPrefs;
   }
+  if (data.mapFlags && typeof data.mapFlags === 'object') {
+    mapFlags = data.mapFlags;
+  }
   lastRemoteTs = data.ts || 0;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs })); } catch(e) {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, mapFlags })); } catch(e) {}
   loadGame();
   if (appMode === 'scouts' && scouts.length > 0) loadScout();
   if (appMode === 'maps') renderMapPrefs();
@@ -779,7 +791,7 @@ async function setGhToken() {
 function saveState() {
   ourTeamName = document.getElementById('ourTeamName').value;
   lastLocalTs = Date.now(); // Mark local change immediately so polls don't overwrite
-  const data = { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs };
+  const data = { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, mapFlags };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
   // Push to cloud
   if (!suppressRemote) debouncedPush();
@@ -798,6 +810,7 @@ function loadState() {
     }
     if (d.scouts) scouts = d.scouts;
     if (d.mapPrefs) mapPrefs = d.mapPrefs;
+    if (d.mapFlags) mapFlags = d.mapFlags;
     if (typeof d.activeGame === 'number') activeGame = d.activeGame;
     document.getElementById('ourTeamName').value = ourTeamName;
   } catch(e) {}
@@ -1049,6 +1062,19 @@ function setMapPref(packId, mapId, armyIdx, val) {
   mapPrefs[key][armyIdx] = val;
 }
 
+function isShootingBad(packId, mapId) {
+  const key = packId + '/' + mapId;
+  return !!(mapFlags[key] && mapFlags[key].shooting);
+}
+
+function toggleShootingBad(packId, mapId) {
+  const key = packId + '/' + mapId;
+  if (!mapFlags[key]) mapFlags[key] = {};
+  mapFlags[key].shooting = !mapFlags[key].shooting;
+  saveState();
+  renderMapPrefs();
+}
+
 function initMapPrefsDropdowns() {
   const packSel = document.getElementById('mapPrefPack');
   const depSel = document.getElementById('mapPrefDep');
@@ -1090,13 +1116,15 @@ function renderMapPrefs() {
   let html = '';
   for (const [depName, depMaps] of Object.entries(groups)) {
     if (!dep) html += `<h3 style="font-size:0.9rem;color:#c4a44a;margin:12px 0 6px;">${esc(depName)}</h3>`;
-    html += '<div class="matrix-wrapper"><table class="map-pref-table"><thead><tr><th>Map</th>';
+    html += '<div class="matrix-wrapper"><table class="map-pref-table"><thead><tr><th>Map</th><th title="Bad vs heavy shooting">&#x1F3AF;</th>';
     for (let i = 0; i < NUM; i++) html += `<th>${esc(ourArmies[i])}</th>`;
     html += '</tr></thead><tbody>';
     for (const m of depMaps) {
       const lbl = mapLabel(packId, m.id);
       const imgUrl = mapImageUrl(packId, m.id);
+      const shooting = isShootingBad(packId, m.id);
       html += `<tr><td class="map-name-cell" onmouseenter="showMapPreview(event,'${esc(imgUrl)}')" onmousemove="moveMapPreview(event)" onmouseleave="hideMapPreview()">${esc(lbl)}</td>`;
+      html += `<td class="shooting-flag-cell ${shooting ? 'active' : 'inactive'}" onclick="toggleShootingBad('${packId}','${m.id}')" title="Bad vs heavy shooting">${shooting ? '\u2717' : ''}</td>`;
       for (let i = 0; i < NUM; i++) {
         const pref = getMapPref(packId, m.id, i);
         const label = pref === 'green' ? '\u2713' : pref === 'red' ? '\u2717' : '';
@@ -1266,6 +1294,7 @@ function render() {
       if (p.mapId) {
         mapInfo = mapLabel(p.mapPack||'wtc2025', p.mapId);
         mapPrefHtml = mapPrefIndicator(p.mapPack||'wtc2025', p.mapId, p.ours, ourArmies[p.ours]);
+        if (isShootingBad(p.mapPack||'wtc2025', p.mapId)) mapPrefHtml += '<span class="shooting-warning">\u2717\uD83C\uDFAF</span>';
       }
       return `<div class="pairing-entry">
         <span class="round-num">${i+1}.</span>
@@ -1351,16 +1380,20 @@ function renderMapSelect() {
       const sel = selMapId === mid ? 'selected' : '';
       const url = mapImageUrl(selMapPack, mid);
       const lbl = mapLabel(selMapPack, mid);
+      const shootBad = isShootingBad(selMapPack, mid);
       // Show pref dots for our army in this matchup
       let prefDots = '';
       if (ourIdx >= 0) {
         const pref = getMapPref(selMapPack, mid, ourIdx);
-        if (pref !== 'none') {
-          prefDots = `<div class="map-pref-row"><span class="map-pref-dot ${pref} highlight" title="${esc(ourArmies[ourIdx])}: ${pref==='green'?'Good':'Bad'}"></span></div>`;
+        if (pref !== 'none' || shootBad) {
+          prefDots = '<div class="map-pref-row">';
+          if (pref !== 'none') prefDots += `<span class="map-pref-dot ${pref} highlight" title="${esc(ourArmies[ourIdx])}: ${pref==='green'?'Good':'Bad'}"></span>`;
+          if (shootBad) prefDots += `<span style="font-size:0.6rem;color:#f88;" title="Bad vs shooting">\u2717\uD83C\uDFAF</span>`;
+          prefDots += '</div>';
         }
       }
-      return `<div class="map-card ${sel}" onclick="selectMap('${mid}')">
-        <img src="${url}" alt="${esc(lbl)}" loading="lazy" onerror="this.style.display='none'">
+      return `<div class="map-card ${sel} ${shootBad ? 'shooting-bad' : ''}" onclick="selectMap('${mid}')">
+        <img src="${url}" alt="${esc(lbl)}" loading="lazy" onerror="this.style.display='none'" style="pointer-events:none;">
         <div class="map-label">${esc(lbl)}</div>
         ${prefDots}
       </div>`;
@@ -1371,7 +1404,9 @@ function renderMapSelect() {
   if (selMapId && dep) {
     let prefInfo = '';
     if (ourIdx >= 0) prefInfo += mapPrefIndicator(selMapPack, selMapId, ourIdx, ourArmies[ourIdx]);
-    previewHtml = `<div class="map-preview"><img src="${mapImageUrl(selMapPack, selMapId)}" alt="Selected map" onerror="this.style.display='none'">${prefInfo ? '<div style="margin-top:6px;">' + prefInfo + '</div>' : ''}</div>`;
+    const shootBadPreview = isShootingBad(selMapPack, selMapId);
+    if (shootBadPreview) prefInfo += '<span class="shooting-warning">\u2717\uD83C\uDFAF Bad vs shooting</span>';
+    previewHtml = `<div class="map-preview ${shootBadPreview ? 'shooting-bad' : ''}"><img src="${mapImageUrl(selMapPack, selMapId)}" alt="Selected map" onerror="this.style.display='none'">${prefInfo ? '<div style="margin-top:6px;">' + prefInfo + '</div>' : ''}</div>`;
   }
 
   ctrl.innerHTML = `
