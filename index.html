@@ -593,13 +593,7 @@ let syncBusy = false; // mutex to prevent concurrent push/pull
 const GH_DEFAULT_TOKEN = ['ghp','_MXNwfMnkOLZ0','3k1Pdro1VjNY6','pmr3j13m1XQ'].join('');
 
 function getGhToken() {
-  if (ghToken) return ghToken;
-  try {
-    const stored = localStorage.getItem(GH_TOKEN_KEY);
-    if (stored && stored !== GH_DEFAULT_TOKEN) ghToken = stored;
-  } catch(e) {}
-  if (!ghToken) ghToken = GH_DEFAULT_TOKEN;
-  return ghToken;
+  return GH_DEFAULT_TOKEN;
 }
 
 function setSyncStatus(text, cls) {
@@ -1489,7 +1483,7 @@ async function initApp() {
     }
   } catch(e) {
     console.error('Init sync failed:', e);
-    setSyncStatus('Offline \u2014 using local data', 'disconnected');
+    setSyncStatus('Sync error: ' + e.message, 'error');
   }
   startSyncPolling();
 }
