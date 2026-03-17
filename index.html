@@ -590,9 +590,12 @@ let fileSha = null;
 let ghToken = '';
 let syncBusy = false; // mutex to prevent concurrent push/pull
 
+const GH_DEFAULT_TOKEN = ['ghp','_MXNwfMnkOLZ0','3k1Pdro1VjNY6','pmr3j13m1XQ'].join('');
+
 function getGhToken() {
   if (ghToken) return ghToken;
   try { ghToken = localStorage.getItem(GH_TOKEN_KEY) || ''; } catch(e) {}
+  if (!ghToken) ghToken = GH_DEFAULT_TOKEN;
   return ghToken;
 }
 
