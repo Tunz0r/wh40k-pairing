@@ -1315,7 +1315,7 @@ if(currentStep==='defenders'){info.innerHTML=`<strong>Round ${roundNum+1}:</stro
 else if(currentStep==='counters'){const oac=ao.filter(i=>i!==ourDefenderIdx),tac=at.filter(j=>j!==theirDefenderIdx);info.innerHTML=`<strong>Round ${roundNum+1}:</strong> Defenders: <em>${esc(ourArmies[ourDefenderIdx])}</em> (us) &amp; <em>${esc(theirArmies[theirDefenderIdx])}</em> (them). Counter with 2.`;ctrl.innerHTML=`<div class="parallel-cols"><div class="col-panel us-panel"><h4>Our 2 vs <em>${esc(theirArmies[theirDefenderIdx])}</em></h4><div class="army-buttons">${oac.map(i=>{const c=ratings[i][theirDefenderIdx],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${ourCounters.includes(i)?'counter-selected':''}" onclick="toggleOurCounter(${i})">${esc(ourArmies[i])}${t}</button>`;}).join('')}</div></div><div class="col-panel them-panel"><h4>Their 2 vs <em>${esc(ourArmies[ourDefenderIdx])}</em></h4><div class="army-buttons">${tac.map(j=>{const c=ratings[ourDefenderIdx][j],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${theirCounters.includes(j)?'counter-selected':''}" onclick="toggleTheirCounter(${j})">${esc(theirArmies[j])}${t}</button>`;}).join('')}</div></div></div><div class="actions-row"><button class="action-btn primary" onclick="confirmCounters()" ${ourCounters.length!==2||theirCounters.length!==2?'disabled':''}>Confirm Counters</button></div>`;}
 else if(currentStep==='pick1'){renderPickStep(game().tablePick,'pick1');}
 else if(currentStep==='pick2'){renderPickStep(game().tablePick==='us'?'them':'us','pick2');}
-else if(currentStep==='mapSelect'){try{renderMapSelect();}catch(e){console.error('renderMapSelect error:',e);document.getElementById('stepInfo').textContent='Error: '+e.message;}}}
+else if(currentStep==='mapSelect'){renderMapSelect();}}
 
 function renderPickStep(picker,stepId){const g=game(),ratings=g.ratings,ta=g.theirArmies,info=document.getElementById('stepInfo'),ctrl=document.getElementById('pairingControls');
 if(picker==='us'){info.innerHTML=`<strong>Round ${roundNum+1} – ${stepId==='pick1'?'1st':'2nd'} Pick:</strong> WE pick vs our <em>${esc(ourArmies[ourDefenderIdx])}</em>.`;ctrl.innerHTML=`<div class="summary-box"><span class="defender-label">Our defender:</span> ${esc(ourArmies[ourDefenderIdx])} — countered by: ${theirCounters.map(j=>esc(ta[j])).join(' & ')}</div><p style="font-size:0.85rem;margin-bottom:8px;">Pick matchup:</p><div class="army-buttons">${theirCounters.map(j=>{const c=ratings[ourDefenderIdx][j],l=colorLabel(c)||'?',bg=colorBg(c);return`<button class="pick-btn" onclick="makePick('us',${j})" style="border-color:${bg};background:${bg};">${esc(ta[j])}<br><small style="opacity:0.8">${l}</small></button>`;}).join('')}</div>`;}
@@ -1396,7 +1396,7 @@ function renderMapSelect() {
 
 function selectMap(id) {
   selMapId = id;
-  try { renderMapSelect(); } catch(e) { console.error('renderMapSelect error:', e); alert('Map select error: ' + e.message); }
+  renderMapSelect();
 }
 
 function confirmMapSelection() {
