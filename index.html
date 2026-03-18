@@ -120,7 +120,18 @@
   .pairing-entry .round-num { color: #c4a44a; font-weight: 700; min-width: 20px; }
   .pairing-entry .vs { color: #888; }
   .pairing-entry .matchup-color { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-left: 6px; }
-  .pairing-entry .map-info { font-size: 0.75rem; color: #888; margin-left: auto; }
+  .pairing-entry .map-info { font-size: 0.75rem; color: #888; }
+  .pairing-entry .score-group { margin-left: auto; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .score-input { width: 38px; text-align: center; background: #2a2a3e; border: 1px solid #444; color: #e0e0e0; border-radius: 4px; padding: 2px 4px; font-size: 0.82rem; font-weight: 700; }
+  .score-input:focus { outline: 1px solid #c4a44a; }
+  .score-dash { color: #666; font-size: 0.8rem; }
+  .score-opponent { color: #888; font-size: 0.82rem; font-weight: 700; min-width: 20px; text-align: center; }
+  .score-win { color: #8f8; } .score-draw { color: #cc8; } .score-loss { color: #f88; }
+  .game-total-bar { display: flex; align-items: center; gap: 12px; padding: 8px 10px; margin-top: 6px; background: #16213e; border: 1px solid #333; border-radius: 6px; font-size: 0.88rem; font-weight: 700; }
+  .game-total-bar .total-label { color: #c4a44a; }
+  .game-total-bar .total-score { font-size: 1rem; }
+  .tournament-total-bar { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-top: 10px; background: #2a2520; border: 2px solid #c4a44a; border-radius: 8px; font-size: 0.95rem; font-weight: 700; }
+  .tournament-total-bar .total-label { color: #c4a44a; }
   .first-toggle { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
   .first-toggle label { font-size: 0.85rem; }
   .toggle-btn { padding: 6px 14px; border: 2px solid #444; background: #2a2a3e; color: #e0e0e0; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
@@ -389,7 +400,9 @@
       <div class="pairings-log" id="pairingsLog" style="display:none;">
         <h3>Confirmed Pairings</h3>
         <div id="pairingsList"></div>
+        <div id="gameTotalBar"></div>
       </div>
+      <div id="tournamentTotalBar"></div>
     </div>
   </div>
   </div><!-- end roundsMode -->
@@ -1014,7 +1027,9 @@ function renderTabs() {
     const active = i === activeGame ? 'active' : '';
     const done = g.pairings.length === 5 ? 'has-pairings' : '';
     const label = g.theirTeamName || ('Game ' + (i+1));
-    html += `<div class="tab ${active} ${done}" onclick="switchGame(${i})">${esc(label)}</div>`;
+    const gs = gameScore(g);
+    const scoreTag = gs.count > 0 ? ` <small style="opacity:0.7;font-weight:400;">(${gs.ours}–${gs.theirs})</small>` : '';
+    html += `<div class="tab ${active} ${done}" onclick="switchGame(${i})">${esc(label)}${scoreTag}</div>`;
   }
   html += `<div class="tab-actions">`;
   if (games.length < MAX_GAMES) html += `<button onclick="addGame()">+ Add Game</button>`;
@@ -1596,6 +1611,10 @@ function render() {
         mapPrefHtml = mapPrefIndicator(p.mapPack||'wtc2025', p.mapId, p.ours, ourArmies[p.ours]);
         if (isShootingBad(p.mapPack||'wtc2025', p.mapId)) mapPrefHtml += '<span class="shooting-warning">\u2717\uD83C\uDFAF</span>';
       }
+      const hasScore = typeof p.score === 'number';
+      const ourScore = hasScore ? p.score : '';
+      const theirScore = hasScore ? (20 - p.score) : '';
+      const scoreCls = hasScore ? (p.score > 10 ? 'score-win' : p.score === 10 ? 'score-draw' : 'score-loss') : '';
       return `<div class="pairing-entry">
         <span class="round-num">${i+1}.</span>
         <span>${esc(ourArmies[p.ours])}</span>
@@ -1603,11 +1622,72 @@ function render() {
         <span style="cursor:help;" onmouseenter="showListTooltip(event,'game',${p.theirs})" onmousemove="moveListTooltip(event)" onmouseleave="hideListTooltip()">${esc(theirArmies[p.theirs])}</span>
         <span class="matchup-color" style="background:${colorBg(c)}"></span>
         ${mapInfo ? `<span class="map-info">${esc(mapInfo)} ${mapPrefHtml}</span>` : ''}
+        <span class="score-group">
+          <input type="number" class="score-input ${scoreCls}" min="0" max="20" value="${ourScore}" placeholder="—" onchange="setScore(${i},this.value)">
+          <span class="score-dash">–</span>
+          <span class="score-opponent ${hasScore ? (theirScore > 10 ? 'score-loss' : theirScore === 10 ? 'score-draw' : 'score-win') : ''}">${theirScore !== '' ? theirScore : '—'}</span>
+        </span>
       </div>`;
     }).join('');
+    renderGameTotal(g);
   }
   else logDiv.style.display='none';
+  renderTournamentTotal();
   computeOptimal();
+}
+
+function setScore(pairingIdx, val) {
+  const g = game();
+  if (!g.pairings[pairingIdx]) return;
+  const num = parseInt(val);
+  if (val === '' || isNaN(num)) {
+    delete g.pairings[pairingIdx].score;
+  } else {
+    g.pairings[pairingIdx].score = Math.max(0, Math.min(20, num));
+  }
+  saveState();
+  render();
+}
+
+function gameScore(g) {
+  let ours = 0, theirs = 0, count = 0;
+  (g.pairings || []).forEach(p => {
+    if (typeof p.score === 'number') { ours += p.score; theirs += (20 - p.score); count++; }
+  });
+  return { ours, theirs, count };
+}
+
+function renderGameTotal(g) {
+  const bar = document.getElementById('gameTotalBar');
+  if (!bar) return;
+  const s = gameScore(g);
+  if (s.count === 0) { bar.innerHTML = ''; return; }
+  const cls = s.ours > s.theirs ? 'score-win' : s.ours === s.theirs ? 'score-draw' : 'score-loss';
+  bar.innerHTML = `<div class="game-total-bar"><span class="total-label">Game Total:</span><span class="total-score ${cls}">${s.ours} – ${s.theirs}</span><span style="color:#888;font-size:0.78rem;">(${s.count}/5 entered)</span></div>`;
+}
+
+function renderTournamentTotal() {
+  const bar = document.getElementById('tournamentTotalBar');
+  if (!bar) return;
+  let totalOurs = 0, totalTheirs = 0, gamesPlayed = 0, roundsPlayed = 0;
+  for (const g of games) {
+    const s = gameScore(g);
+    if (s.count > 0) {
+      totalOurs += s.ours;
+      totalTheirs += s.theirs;
+      roundsPlayed += s.count;
+      if (s.count === 5) gamesPlayed++;
+    }
+  }
+  if (roundsPlayed === 0) { bar.innerHTML = ''; return; }
+  const cls = totalOurs > totalTheirs ? 'score-win' : totalOurs === totalTheirs ? 'score-draw' : 'score-loss';
+  const gamesHtml = games.filter(g => gameScore(g).count > 0).map((g, i) => {
+    const s = gameScore(g);
+    const gc = s.ours > s.theirs ? 'score-win' : s.ours === s.theirs ? 'score-draw' : 'score-loss';
+    const name = g.theirTeamName || ('Game ' + (i+1));
+    return `<span style="font-size:0.78rem;color:#ccc;">vs ${esc(name)}: <span class="${gc}">${s.ours}–${s.theirs}</span></span>`;
+  }).join(' &nbsp;|&nbsp; ');
+  bar.innerHTML = `<div class="tournament-total-bar"><span class="total-label">Tournament:</span><span class="total-score ${cls}" style="font-size:1.1rem;">${totalOurs} – ${totalTheirs}</span><span style="color:#888;font-size:0.78rem;">(${gamesPlayed} games)</span></div>${gamesHtml ? '<div style="margin-top:4px;padding:4px 10px;">'+gamesHtml+'</div>' : ''}`;
 }
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
