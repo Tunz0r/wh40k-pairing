@@ -360,10 +360,12 @@
         <input type="text" id="theirTeamName" value="Opponent 1" oninput="game().theirTeamName=this.value;saveState();renderTabs();">
       </div>
     </div>
-    <div class="matrix-wrapper"><table class="matrix" id="matrixTable"></table></div>
-    <div class="optimal-section">
-      <h2>Optimal Path Suggestion</h2>
-      <div id="optimalContent"></div>
+    <div id="matrixBlock">
+      <div class="matrix-wrapper"><table class="matrix" id="matrixTable"></table></div>
+      <div class="optimal-section">
+        <h2>Optimal Path Suggestion</h2>
+        <div id="optimalContent"></div>
+      </div>
     </div>
     <div class="pairing-section" style="margin-bottom:16px;">
       <h2>Round Settings</h2>
@@ -404,6 +406,7 @@
       </div>
       <div id="tournamentTotalBar"></div>
     </div>
+    <div id="matrixMountPairing"></div>
   </div>
   </div><!-- end roundsMode -->
 
@@ -1079,6 +1082,7 @@ function loadGame() {
   pairedTheirs = new Set();
   pairingActive = false;
   pendingPairing = null;
+  moveMatrixForPairing(false);
   g.pairings.forEach(p => { pairedOurs.add(p.ours); pairedTheirs.add(p.theirs); });
   document.getElementById('startBtn').style.display = '';
   document.getElementById('resetBtn').style.display = 'none';
@@ -1697,9 +1701,22 @@ function availableOurs(){return[...Array(NUM).keys()].filter(i=>!pairedOurs.has(
 function availableTheirs(){return[...Array(NUM).keys()].filter(j=>!pairedTheirs.has(j));}
 
 // ========== PAIRING WORKFLOW ==========
-function startPairing(){const g=game();pairingActive=true;roundNum=0;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();pendingPairing=null;saveState();document.getElementById('startBtn').style.display='none';document.getElementById('resetBtn').style.display='';document.getElementById('resetGameBtn').style.display='none';document.getElementById('toggleUs').disabled=true;document.getElementById('toggleThem').disabled=true;beginRound();}
+function moveMatrixForPairing(active) {
+  const block = document.getElementById('matrixBlock');
+  if (!block) return;
+  if (active) {
+    document.getElementById('matrixMountPairing').appendChild(block);
+  } else {
+    // Move back to original position (before the first pairing-section)
+    const gameContent = document.getElementById('gameContent');
+    const firstSection = gameContent.querySelector('.pairing-section');
+    if (firstSection) gameContent.insertBefore(block, firstSection);
+  }
+}
+
+function startPairing(){const g=game();pairingActive=true;roundNum=0;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();pendingPairing=null;saveState();document.getElementById('startBtn').style.display='none';document.getElementById('resetBtn').style.display='';document.getElementById('resetGameBtn').style.display='none';document.getElementById('toggleUs').disabled=true;document.getElementById('toggleThem').disabled=true;moveMatrixForPairing(true);beginRound();}
 function resetPairingQuiet(){pairingActive=false;roundNum=0;currentStep=null;pendingPairing=null;}
-function resetPairing(){const g=game();pairingActive=false;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();roundNum=0;currentStep=null;pendingPairing=null;saveState();document.getElementById('startBtn').style.display='';document.getElementById('resetBtn').style.display='none';document.getElementById('resetGameBtn').style.display='none';document.getElementById('pairingControls').style.display='none';document.getElementById('pairingControls').innerHTML='';document.getElementById('stepInfo').textContent='Press "Start Pairing" to begin.';document.getElementById('toggleUs').disabled=false;document.getElementById('toggleThem').disabled=false;renderTabs();render();}
+function resetPairing(){const g=game();pairingActive=false;g.pairings=[];pairedOurs=new Set();pairedTheirs=new Set();roundNum=0;currentStep=null;pendingPairing=null;saveState();document.getElementById('startBtn').style.display='';document.getElementById('resetBtn').style.display='none';document.getElementById('resetGameBtn').style.display='none';document.getElementById('pairingControls').style.display='none';document.getElementById('pairingControls').innerHTML='';document.getElementById('stepInfo').textContent='Press "Start Pairing" to begin.';document.getElementById('toggleUs').disabled=false;document.getElementById('toggleThem').disabled=false;moveMatrixForPairing(false);renderTabs();render();}
 
 function resetGame(){
   if (!confirm('Reset all pairings for this game? (Matchup ratings will be kept)')) return;
