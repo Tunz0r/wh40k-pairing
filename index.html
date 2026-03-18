@@ -370,8 +370,8 @@
     <div id="matrixBlock">
       <div class="matrix-wrapper"><table class="matrix" id="matrixTable"></table></div>
       <div class="optimal-section">
-        <h2>Optimal Path Suggestion</h2>
-        <div id="optimalContent"></div>
+        <h2 style="cursor:pointer;user-select:none;" onclick="toggleOptimal()">Optimal Path Suggestion <span id="optimalToggle" style="font-size:0.75rem;color:#888;">&#9654; Show</span></h2>
+        <div id="optimalContent" style="display:none;"></div>
       </div>
     </div>
     <div class="pairing-section" style="margin-bottom:16px;">
@@ -451,8 +451,8 @@
       </div>
       <div class="matrix-wrapper"><table class="matrix" id="scoutMatrixTable"></table></div>
       <div class="optimal-section">
-        <h2>Optimal Path Suggestion</h2>
-        <div id="scoutOptimalContent"></div>
+        <h2 style="cursor:pointer;user-select:none;" onclick="toggleScoutOptimal()">Optimal Path Suggestion <span id="scoutOptimalToggle" style="font-size:0.75rem;color:#888;">&#9654; Show</span></h2>
+        <div id="scoutOptimalContent" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -1511,6 +1511,22 @@ function mapPrefIndicator(packId, mapId, armyIdx, label) {
 
 // ========== OPTIMAL PATH ==========
 function ratingScore(c) { return c === 'green' ? 3 : c === 'yellow' ? 2 : c === 'red' ? 0 : 1; }
+
+function toggleOptimal() {
+  const el = document.getElementById('optimalContent');
+  const tog = document.getElementById('optimalToggle');
+  const show = el.style.display === 'none';
+  el.style.display = show ? '' : 'none';
+  tog.innerHTML = show ? '&#9660; Hide' : '&#9654; Show';
+}
+
+function toggleScoutOptimal() {
+  const el = document.getElementById('scoutOptimalContent');
+  const tog = document.getElementById('scoutOptimalToggle');
+  const show = el.style.display === 'none';
+  el.style.display = show ? '' : 'none';
+  tog.innerHTML = show ? '&#9660; Hide' : '&#9654; Show';
+}
 
 function computeOptimal() {
   const g = game();
