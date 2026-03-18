@@ -17,6 +17,11 @@
   .subtitle { text-align: center; color: #888; font-size: 0.85rem; margin-bottom: 16px; }
   .container { max-width: 960px; margin: 0 auto; }
 
+  /* Tournament tabs */
+  #tournamentTabBar { border-bottom: 2px solid #c4a44a; padding-bottom: 8px; margin-bottom: 14px; }
+  #tournamentTabBar .tab { font-size: 0.85rem; padding: 7px 18px; background: #0f1629; border-color: #444; }
+  #tournamentTabBar .tab.active { background: #1a1a2e; border-color: #c4a44a; color: #c4a44a; }
+
   .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
   .tab {
     padding: 6px 16px; border: 2px solid #333; background: #16213e; color: #888;
@@ -314,6 +319,8 @@
     <button onclick="setGhToken()">Set Token</button>
   </div>
 
+  <div class="tab-bar" id="tournamentTabBar"></div>
+
   <div class="our-team-bar">
     <label>Our Team:</label>
     <input type="text" id="ourTeamName" value="Old Grumpy Bastards" oninput="saveState()">
@@ -603,7 +610,6 @@ function makeGame(idx) {
 }
 
 let games = [];
-for (let i = 0; i < 5; i++) games.push(makeGame(i));
 let activeGame = 0;
 
 // ========== SCOUTING STATE ==========
@@ -623,6 +629,79 @@ let mapPrefs = {}; // key: "packId/mapId" → array of NUM ratings ('none'/'gree
 let mapFlags = {}; // key: "packId/mapId" → {shooting: true} — global flags per map
 
 function scout() { return scouts[activeScout]; }
+
+// ========== TOURNAMENT STATE ==========
+let tournaments = [];
+let activeTournamentIdx = 0;
+
+function makeTournament(name) {
+  const g = [];
+  for (let i = 0; i < 5; i++) g.push(makeGame(i));
+  return {
+    name: name || 'New Tournament',
+    ourTeamName: 'Old Grumpy Bastards',
+    ourArmies: ['Army 1','Army 2','Army 3','Army 4','Army 5'],
+    games: g,
+    activeGame: 0,
+    scouts: [],
+    mapPrefs: {},
+    mapFlags: {},
+  };
+}
+
+// Save working globals back into the active tournament object
+function saveTournament() {
+  if (!tournaments[activeTournamentIdx]) return;
+  const t = tournaments[activeTournamentIdx];
+  t.ourTeamName = ourTeamName;
+  t.ourArmies = ourArmies;
+  t.games = games;
+  t.activeGame = activeGame;
+  t.scouts = scouts;
+  t.mapPrefs = mapPrefs;
+  t.mapFlags = mapFlags;
+}
+
+// Load active tournament data into working globals
+function loadTournament() {
+  const t = tournaments[activeTournamentIdx];
+  if (!t) return;
+  ourTeamName = t.ourTeamName || 'Old Grumpy Bastards';
+  ourArmies = t.ourArmies || ['Army 1','Army 2','Army 3','Army 4','Army 5'];
+  games = t.games || [];
+  while (games.length < 5) games.push(makeGame(games.length));
+  games.forEach(g => { if (!g.theirLists) g.theirLists = ['','','','','']; });
+  activeGame = t.activeGame || 0;
+  if (activeGame >= games.length) activeGame = 0;
+  scouts = t.scouts || [];
+  scouts.forEach(s => { if (!s.theirLists) s.theirLists = ['','','','','']; });
+  mapPrefs = t.mapPrefs || {};
+  mapFlags = t.mapFlags || {};
+  document.getElementById('ourTeamName').value = ourTeamName;
+  resetPairingQuiet();
+  loadGame();
+  if (appMode === 'scouts' && scouts.length > 0) loadScout();
+  if (appMode === 'maps') renderMapPrefs();
+  renderTournamentTabs();
+}
+
+// Migrate old flat payload into a tournament object
+function migrateOldPayload(d) {
+  const t = {
+    name: 'Danish Open, 40k Teams!',
+    ourTeamName: d.ourTeamName || 'Old Grumpy Bastards',
+    ourArmies: d.ourArmies || ['Army 1','Army 2','Army 3','Army 4','Army 5'],
+    games: d.games || [],
+    activeGame: d.activeGame || 0,
+    scouts: d.scouts || [],
+    mapPrefs: d.mapPrefs || {},
+    mapFlags: d.mapFlags || {},
+  };
+  while (t.games.length < 5) t.games.push(makeGame(t.games.length));
+  t.games.forEach(g => { if (!g.theirLists) g.theirLists = ['','','','','']; });
+  t.scouts.forEach(s => { if (!s.theirLists) s.theirLists = ['','','','','']; });
+  return t;
+}
 
 let pairingActive = false;
 let roundNum = 0;
@@ -665,46 +744,45 @@ function setSyncStatus(text, cls) {
 
 function buildPayload() {
   lastLocalTs = Date.now();
-  return { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, mapFlags, ts: lastLocalTs };
+  saveTournament();
+  return { tournaments, activeTournamentIdx, ts: lastLocalTs };
 }
 
 function localHasData() {
-  return games.some(g => g.pairings.length > 0 ||
-    g.theirTeamName !== ('Opponent ' + (games.indexOf(g) + 1)) ||
-    g.ratings.some(row => row.some(c => c !== 'none')) ||
-    g.theirArmies.some(a => !a.match(/^Army [1-5]$/))
-  ) || ourArmies.some(a => !a.match(/^Army [1-5]$/))
-    || scouts.some(s => s.ratings.some(row => row.some(c => c !== 'none')) ||
-       s.theirTeamName !== ('Scouted Team ' + (scouts.indexOf(s) + 1)));
+  saveTournament();
+  return tournaments.some(t =>
+    (t.games || []).some(g => g.pairings.length > 0 ||
+      g.ratings.some(row => row.some(c => c !== 'none')) ||
+      g.theirArmies.some(a => !a.match(/^Army [1-5]$/))
+    ) || (t.ourArmies || []).some(a => !a.match(/^Army [1-5]$/))
+      || (t.scouts || []).length > 0
+  );
 }
 
 function applyPayload(data) {
-  if (!data || !data.games) return;
+  if (!data) return;
   suppressRemote = true;
-  console.log('[sync] applyPayload: games=' + data.games.length + ', scouts=' + (data.scouts ? data.scouts.length : 'none') + ', ts=' + data.ts);
-  if (data.ourTeamName) { ourTeamName = data.ourTeamName; document.getElementById('ourTeamName').value = ourTeamName; }
-  if (data.ourArmies) ourArmies = data.ourArmies;
-  if (data.games) {
-    games = data.games;
-    while (games.length < 5) games.push(makeGame(games.length));
-    games.forEach(g => { if (!g.theirLists) g.theirLists = ['','','','','']; });
+  if (data.tournaments) {
+    // New multi-tournament format
+    console.log('[sync] applyPayload: ' + data.tournaments.length + ' tournaments, ts=' + data.ts);
+    tournaments = data.tournaments;
+    activeTournamentIdx = data.activeTournamentIdx || 0;
+  } else if (data.games) {
+    // Old flat format — migrate
+    console.log('[sync] applyPayload: migrating old format, ts=' + data.ts);
+    tournaments = [migrateOldPayload(data)];
+    activeTournamentIdx = 0;
+  } else {
+    suppressRemote = false;
+    return;
   }
-  // Always sync scouts — use remote if present, keep local otherwise
-  if (Array.isArray(data.scouts)) {
-    scouts = data.scouts;
-    scouts.forEach(s => { if (!s.theirLists) s.theirLists = ['','','','','']; });
-  }
-  if (data.mapPrefs && typeof data.mapPrefs === 'object') {
-    mapPrefs = data.mapPrefs;
-  }
-  if (data.mapFlags && typeof data.mapFlags === 'object') {
-    mapFlags = data.mapFlags;
-  }
+  if (activeTournamentIdx >= tournaments.length) activeTournamentIdx = 0;
   lastRemoteTs = data.ts || 0;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, mapFlags })); } catch(e) {}
-  loadGame();
-  if (appMode === 'scouts' && scouts.length > 0) loadScout();
-  if (appMode === 'maps') renderMapPrefs();
+  loadTournament();
+  try {
+    saveTournament();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tournaments, activeTournamentIdx }));
+  } catch(e) {}
   renderScoutImportOptions();
   suppressRemote = false;
 }
@@ -746,7 +824,7 @@ async function pushToRemote(retryCount) {
       console.warn('[sync] Could not refresh SHA:', e.message);
     }
     const payload = buildPayload();
-    console.log('[sync] pushing: games=' + payload.games.length + ', scouts=' + (payload.scouts ? payload.scouts.length : 0) + ', ts=' + payload.ts);
+    console.log('[sync] pushing: tournaments=' + payload.tournaments.length + ', ts=' + payload.ts);
     const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
     const body = { message: 'sync', content, branch: GH_BRANCH };
     if (fileSha) body.sha = fileSha;
@@ -824,7 +902,7 @@ async function setGhToken() {
     try {
       const remoteData = await ghApiFetch(ghToken);
       const remoteTs = remoteData.ts || 0;
-      if (remoteTs > 0 && remoteData.games) {
+      if (remoteTs > 0 && (remoteData.tournaments || remoteData.games)) {
         lastRemoteTs = remoteTs;
         applyPayload(remoteData);
         setSyncStatus('Synced \u2713', 'connected');
@@ -846,7 +924,8 @@ async function setGhToken() {
 function saveState() {
   ourTeamName = document.getElementById('ourTeamName').value;
   lastLocalTs = Date.now(); // Mark local change immediately so polls don't overwrite
-  const data = { ourTeamName, ourArmies, games, activeGame, scouts, mapPrefs, mapFlags };
+  saveTournament();
+  const data = { tournaments, activeTournamentIdx };
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
   // Push to cloud
   if (!suppressRemote) debouncedPush();
@@ -857,25 +936,76 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const d = JSON.parse(raw);
-    if (d.ourTeamName) ourTeamName = d.ourTeamName;
-    if (d.ourArmies) ourArmies = d.ourArmies;
-    if (d.games) {
-      games = d.games;
-      while (games.length < 5) games.push(makeGame(games.length));
-      games.forEach(g => { if (!g.theirLists) g.theirLists = ['','','','','']; });
+    if (d.tournaments) {
+      // New multi-tournament format
+      tournaments = d.tournaments;
+      activeTournamentIdx = d.activeTournamentIdx || 0;
+      if (activeTournamentIdx >= tournaments.length) activeTournamentIdx = 0;
+    } else if (d.games) {
+      // Old flat format — migrate
+      console.log('[migration] Converting old format to tournament');
+      tournaments = [migrateOldPayload(d)];
+      activeTournamentIdx = 0;
     }
-    if (d.scouts) {
-      scouts = d.scouts;
-      scouts.forEach(s => { if (!s.theirLists) s.theirLists = ['','','','','']; });
-    }
-    if (d.mapPrefs) mapPrefs = d.mapPrefs;
-    if (d.mapFlags) mapFlags = d.mapFlags;
-    if (typeof d.activeGame === 'number') activeGame = d.activeGame;
-    document.getElementById('ourTeamName').value = ourTeamName;
-  } catch(e) {}
+    if (tournaments.length > 0) loadTournament();
+  } catch(e) { console.error('loadState error:', e); }
 }
 
 // ========== TABS ==========
+// ========== TOURNAMENT MANAGEMENT ==========
+function renderTournamentTabs() {
+  const bar = document.getElementById('tournamentTabBar');
+  if (!bar) return;
+  let html = '';
+  for (let i = 0; i < tournaments.length; i++) {
+    const t = tournaments[i];
+    const active = i === activeTournamentIdx ? 'active' : '';
+    html += `<div class="tab ${active}" onclick="switchTournament(${i})">${esc(t.name)}</div>`;
+  }
+  html += `<div class="tab-actions">`;
+  html += `<button onclick="addTournament()">+ Tournament</button>`;
+  html += `<button onclick="renameTournament()">Rename</button>`;
+  if (tournaments.length > 1) html += `<button onclick="removeTournament()">Remove</button>`;
+  html += `</div>`;
+  bar.innerHTML = html;
+}
+
+function switchTournament(idx) {
+  if (idx === activeTournamentIdx) return;
+  saveTournament();
+  activeTournamentIdx = idx;
+  loadTournament();
+  saveState();
+}
+
+function addTournament() {
+  const name = prompt('Tournament name:');
+  if (!name || !name.trim()) return;
+  saveTournament();
+  tournaments.push(makeTournament(name.trim()));
+  activeTournamentIdx = tournaments.length - 1;
+  loadTournament();
+  saveState();
+}
+
+function renameTournament() {
+  const t = tournaments[activeTournamentIdx];
+  const name = prompt('Rename tournament:', t.name);
+  if (!name || !name.trim()) return;
+  t.name = name.trim();
+  renderTournamentTabs();
+  saveState();
+}
+
+function removeTournament() {
+  if (tournaments.length <= 1) { alert('Cannot remove the last tournament.'); return; }
+  if (!confirm('Remove tournament "' + tournaments[activeTournamentIdx].name + '"? This cannot be undone!')) return;
+  tournaments.splice(activeTournamentIdx, 1);
+  if (activeTournamentIdx >= tournaments.length) activeTournamentIdx = tournaments.length - 1;
+  loadTournament();
+  saveState();
+}
+
 function renderTabs() {
   const bar = document.getElementById('tabBar');
   let html = '';
@@ -1666,6 +1796,13 @@ function makePick(picker, chosenIdx) {
 // ========== INIT ==========
 async function initApp() {
   loadState();
+  // Ensure at least one tournament exists
+  if (tournaments.length === 0) {
+    tournaments.push(makeTournament('Danish Open, 40k Teams!'));
+    activeTournamentIdx = 0;
+    loadTournament();
+  }
+  renderTournamentTabs();
   loadGame();
   const token = getGhToken();
   if (!token) {
@@ -1676,7 +1813,7 @@ async function initApp() {
   try {
     const remoteData = await ghApiFetch(token);
     const remoteTs = remoteData.ts || 0;
-    if (remoteTs > 0 && remoteData.games) {
+    if (remoteTs > 0 && (remoteData.tournaments || remoteData.games)) {
       lastRemoteTs = remoteTs;
       applyPayload(remoteData);
       setSyncStatus('Synced \u2713', 'connected');
