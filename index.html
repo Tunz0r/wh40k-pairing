@@ -71,6 +71,13 @@
   .team-header label { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
   .team-header input { background: #16213e; border: 1px solid #333; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; width: 200px; }
 
+  #gameContent { display: flex; flex-direction: column; }
+  #gameContent > .team-headers { order: 1; }
+  #gameContent > #matrixBlock { order: 2; }
+  #gameContent > .pairing-section:first-of-type { order: 3; }
+  #gameContent > .pairing-section:last-of-type { order: 4; }
+  #gameContent > #matrixMountPairing { order: 5; }
+  #gameContent.pairing-active > #matrixBlock { order: 10; }
   .matrix-wrapper { overflow-x: auto; margin-bottom: 20px; }
   table.matrix { border-collapse: collapse; width: 100%; }
   table.matrix th, table.matrix td { border: 1px solid #333; text-align: center; padding: 0; position: relative; }
@@ -1702,15 +1709,12 @@ function availableTheirs(){return[...Array(NUM).keys()].filter(j=>!pairedTheirs.
 
 // ========== PAIRING WORKFLOW ==========
 function moveMatrixForPairing(active) {
-  const block = document.getElementById('matrixBlock');
-  if (!block) return;
+  const gc = document.getElementById('gameContent');
+  if (!gc) return;
   if (active) {
-    document.getElementById('matrixMountPairing').appendChild(block);
+    gc.classList.add('pairing-active');
   } else {
-    // Move back to original position (before the first pairing-section)
-    const gameContent = document.getElementById('gameContent');
-    const firstSection = gameContent.querySelector('.pairing-section');
-    if (firstSection) gameContent.insertBefore(block, firstSection);
+    gc.classList.remove('pairing-active');
   }
 }
 
