@@ -220,6 +220,46 @@
   .shooting-warning { display: inline-flex; align-items: center; gap: 3px; font-size: 0.68rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; background: #6a2d2d; color: #f88; margin-left: 4px; vertical-align: middle; }
   .map-preview.shooting-bad img { filter: sepia(1) saturate(3) hue-rotate(-20deg) brightness(0.7); }
 
+  /* Army list tooltip */
+  .list-tooltip {
+    position: fixed; z-index: 9000; pointer-events: none;
+    background: #16213e; border: 2px solid #c4a44a; border-radius: 8px;
+    padding: 10px 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    max-width: 360px; min-width: 180px; white-space: pre-wrap; font-size: 0.78rem;
+    color: #e0e0e0; line-height: 1.4;
+  }
+  .list-tooltip .lt-title { color: #c4a44a; font-weight: 700; font-size: 0.82rem; margin-bottom: 4px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  .list-tooltip .lt-empty { color: #666; font-style: italic; }
+
+  /* Army list edit modal */
+  .list-modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9500;
+    background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center;
+  }
+  .list-modal {
+    background: #16213e; border: 2px solid #c4a44a; border-radius: 10px;
+    padding: 20px; width: 500px; max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column;
+  }
+  .list-modal h3 { color: #c4a44a; font-size: 1rem; margin-bottom: 10px; }
+  .list-modal textarea {
+    width: 100%; flex: 1; min-height: 250px; background: #1a1a2e; border: 1px solid #444;
+    color: #e0e0e0; border-radius: 6px; padding: 10px; font-size: 0.82rem; font-family: 'Segoe UI', system-ui, sans-serif;
+    resize: vertical; line-height: 1.4;
+  }
+  .list-modal textarea:focus { outline: 1px solid #c4a44a; }
+  .list-modal .modal-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+  .list-modal .modal-actions button {
+    padding: 6px 18px; border-radius: 4px; cursor: pointer; font-size: 0.82rem; font-weight: 600; border: 1px solid #444;
+  }
+  .list-modal .btn-save { background: #2d6a2d; color: #e0e0e0; border-color: #4a9; }
+  .list-modal .btn-save:hover { background: #3a8a3a; }
+  .list-modal .btn-cancel { background: #2a2a3e; color: #ccc; }
+  .list-modal .btn-cancel:hover { background: #3a3a4e; }
+
+  /* Indicator that a list exists */
+  .their-header { position: relative; }
+  .has-list-dot { position: absolute; top: 2px; right: 4px; width: 6px; height: 6px; border-radius: 50%; background: #c4a44a; }
+
   /* Login overlay */
   .login-overlay {
     position: fixed; inset: 0; background: #1a1a2e; z-index: 9999;
@@ -388,6 +428,17 @@
   </div>
 </div>
 <div class="map-hover-preview" id="mapHoverPreview" style="display:none;"><img id="mapHoverImg" src="" alt="Map preview"></div>
+<div class="list-tooltip" id="listTooltip" style="display:none;"><div class="lt-title" id="ltTitle"></div><div id="ltBody"></div></div>
+<div class="list-modal-overlay" id="listModalOverlay" style="display:none;" onclick="if(event.target===this)closeListModal()">
+  <div class="list-modal">
+    <h3 id="listModalTitle">Army List</h3>
+    <textarea id="listModalText" placeholder="Paste the opponent's army list here..."></textarea>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeListModal()">Cancel</button>
+      <button class="btn-save" onclick="saveListModal()">Save</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ========== LOGIN ==========
@@ -542,6 +593,7 @@ function makeGame(idx) {
   return {
     theirTeamName: 'Opponent ' + (idx + 1),
     theirArmies: ['Army 1','Army 2','Army 3','Army 4','Army 5'],
+    theirLists: ['','','','',''],
     ratings: Array.from({length: NUM}, () => Array(NUM).fill('none')),
     tablePick: 'us',
     mission: '',
@@ -559,6 +611,7 @@ function makeScout(idx) {
   return {
     theirTeamName: 'Scouted Team ' + (idx + 1),
     theirArmies: ['Army 1','Army 2','Army 3','Army 4','Army 5'],
+    theirLists: ['','','','',''],
     ratings: Array.from({length: NUM}, () => Array(NUM).fill('none')),
   };
 }
@@ -634,10 +687,12 @@ function applyPayload(data) {
   if (data.games) {
     games = data.games;
     while (games.length < 5) games.push(makeGame(games.length));
+    games.forEach(g => { if (!g.theirLists) g.theirLists = ['','','','','']; });
   }
   // Always sync scouts — use remote if present, keep local otherwise
   if (Array.isArray(data.scouts)) {
     scouts = data.scouts;
+    scouts.forEach(s => { if (!s.theirLists) s.theirLists = ['','','','','']; });
   }
   if (data.mapPrefs && typeof data.mapPrefs === 'object') {
     mapPrefs = data.mapPrefs;
@@ -807,8 +862,12 @@ function loadState() {
     if (d.games) {
       games = d.games;
       while (games.length < 5) games.push(makeGame(games.length));
+      games.forEach(g => { if (!g.theirLists) g.theirLists = ['','','','','']; });
     }
-    if (d.scouts) scouts = d.scouts;
+    if (d.scouts) {
+      scouts = d.scouts;
+      scouts.forEach(s => { if (!s.theirLists) s.theirLists = ['','','','','']; });
+    }
     if (d.mapPrefs) mapPrefs = d.mapPrefs;
     if (d.mapFlags) mapFlags = d.mapFlags;
     if (typeof d.activeGame === 'number') activeGame = d.activeGame;
@@ -961,7 +1020,7 @@ function renderScoutMatrix() {
   if (!s) return;
   const ratings = s.ratings, theirArmies = s.theirArmies;
   let html = '<thead><tr><th class="corner"></th>';
-  for (let j=0;j<NUM;j++) html+=`<th class="their-header"><input class="army-input" value="${esc(theirArmies[j])}" onchange="updateScoutArmy(${j},this.value)"></th>`;
+  for (let j=0;j<NUM;j++) html+=theirHeaderHtml(theirArmies[j], 'scout', j, `updateScoutArmy(${j},this.value)`);
   html += '</tr></thead><tbody>';
   for (let i=0;i<NUM;i++) {
     html += `<tr><th class="our-header"><input class="army-input" value="${esc(ourArmies[i])}" disabled></th>`;
@@ -1044,6 +1103,7 @@ function importScout() {
   if (!confirm(`Import "${s.theirTeamName}" scouting data into the current round?\n\nThis will overwrite the opponent name, armies, and ratings for this round.`)) return;
   g.theirTeamName = s.theirTeamName;
   g.theirArmies = JSON.parse(JSON.stringify(s.theirArmies));
+  g.theirLists = JSON.parse(JSON.stringify(s.theirLists || ['','','','','']));
   g.ratings = JSON.parse(JSON.stringify(s.ratings));
   saveState();
   loadGame();
@@ -1163,6 +1223,116 @@ function hideMapPreview() {
   document.getElementById('mapHoverPreview').style.display = 'none';
 }
 
+// ========== ARMY LIST TOOLTIP & MODAL ==========
+let listModalContext = null; // {source:'game'|'scout', idx: armyIndex}
+
+function getTheirList(source, armyIdx) {
+  if (source === 'game') {
+    const g = game();
+    if (!g.theirLists) g.theirLists = ['','','','',''];
+    return g.theirLists[armyIdx] || '';
+  } else {
+    const s = scout();
+    if (!s || !s.theirLists) { if (s) s.theirLists = ['','','','','']; return ''; }
+    return s.theirLists[armyIdx] || '';
+  }
+}
+
+function setTheirList(source, armyIdx, text) {
+  if (source === 'game') {
+    const g = game();
+    if (!g.theirLists) g.theirLists = ['','','','',''];
+    g.theirLists[armyIdx] = text;
+  } else {
+    const s = scout();
+    if (!s) return;
+    if (!s.theirLists) s.theirLists = ['','','','',''];
+    s.theirLists[armyIdx] = text;
+  }
+  saveState();
+}
+
+function getTheirArmyName(source, armyIdx) {
+  if (source === 'game') return game().theirArmies[armyIdx];
+  const s = scout();
+  return s ? s.theirArmies[armyIdx] : '';
+}
+
+function showListTooltip(e, source, armyIdx) {
+  const name = getTheirArmyName(source, armyIdx);
+  const list = getTheirList(source, armyIdx);
+  const el = document.getElementById('listTooltip');
+  document.getElementById('ltTitle').textContent = name;
+  const body = document.getElementById('ltBody');
+  if (list.trim()) {
+    body.className = '';
+    body.textContent = list;
+  } else {
+    body.className = 'lt-empty';
+    body.textContent = 'No list added — click to add';
+  }
+  el.style.display = '';
+  positionTooltip(e, el);
+}
+
+function moveListTooltip(e) {
+  positionTooltip(e, document.getElementById('listTooltip'));
+}
+
+function positionTooltip(e, el) {
+  const pad = 16;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const rect = el.getBoundingClientRect();
+  const w = Math.max(rect.width, 200), h = Math.max(rect.height, 80);
+  if (x + w > window.innerWidth) x = e.clientX - w - pad;
+  if (y + h > window.innerHeight) y = e.clientY - h - pad;
+  if (x < 0) x = pad;
+  if (y < 0) y = pad;
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+}
+
+function hideListTooltip() {
+  document.getElementById('listTooltip').style.display = 'none';
+}
+
+function openListModal(source, armyIdx) {
+  hideListTooltip();
+  listModalContext = { source, idx: armyIdx };
+  const name = getTheirArmyName(source, armyIdx);
+  document.getElementById('listModalTitle').textContent = 'Army List — ' + name;
+  document.getElementById('listModalText').value = getTheirList(source, armyIdx);
+  document.getElementById('listModalOverlay').style.display = '';
+  setTimeout(() => document.getElementById('listModalText').focus(), 50);
+}
+
+function closeListModal() {
+  document.getElementById('listModalOverlay').style.display = 'none';
+  listModalContext = null;
+}
+
+function saveListModal() {
+  if (!listModalContext) return;
+  const text = document.getElementById('listModalText').value;
+  setTheirList(listModalContext.source, listModalContext.idx, text);
+  closeListModal();
+  // Re-render to update has-list indicators
+  if (appMode === 'scouts') renderScoutMatrix();
+  else render();
+}
+
+function theirHeaderHtml(armyName, source, armyIdx, inputOnchange) {
+  const hasList = !!getTheirList(source, armyIdx).trim();
+  return `<th class="their-header"
+    onmouseenter="showListTooltip(event,'${source}',${armyIdx})"
+    onmousemove="moveListTooltip(event)"
+    onmouseleave="hideListTooltip()"
+    ondblclick="openListModal('${source}',${armyIdx})">
+    <input class="army-input" value="${esc(armyName)}" onchange="${inputOnchange}">
+    ${hasList ? '<span class="has-list-dot" title="Has army list"></span>' : ''}
+  </th>`;
+}
+
 function cycleMapPref(packId, mapId, armyIdx) {
   const cur = getMapPref(packId, mapId, armyIdx);
   const order = ['none', 'green', 'red'];
@@ -1271,7 +1441,7 @@ function render() {
   pairings.forEach((p,i)=>{mc[p.ours][p.theirs]=i+1;});
   const table = document.getElementById('matrixTable');
   let html = '<tr><th class="corner"></th>';
-  for (let j=0;j<NUM;j++) html+=`<th class="their-header"><input class="army-input" value="${esc(theirArmies[j])}" onchange="updateArmyName('theirs',${j},this.value)"></th>`;
+  for (let j=0;j<NUM;j++) html+=theirHeaderHtml(theirArmies[j], 'game', j, `updateArmyName('theirs',${j},this.value)`);
   html+='</tr>';
   for (let i=0;i<NUM;i++){
     html+=`<tr><th class="our-header"><input class="army-input" value="${esc(ourArmies[i])}" onchange="updateArmyName('ours',${i},this.value)"></th>`;
@@ -1300,7 +1470,7 @@ function render() {
         <span class="round-num">${i+1}.</span>
         <span>${esc(ourArmies[p.ours])}</span>
         <span class="vs">vs</span>
-        <span>${esc(theirArmies[p.theirs])}</span>
+        <span style="cursor:help;" onmouseenter="showListTooltip(event,'game',${p.theirs})" onmousemove="moveListTooltip(event)" onmouseleave="hideListTooltip()">${esc(theirArmies[p.theirs])}</span>
         <span class="matchup-color" style="background:${colorBg(c)}"></span>
         ${mapInfo ? `<span class="map-info">${esc(mapInfo)} ${mapPrefHtml}</span>` : ''}
       </div>`;
@@ -1340,14 +1510,14 @@ function beginRound(){
 }
 
 function renderStep(){const g=game(),ratings=g.ratings,theirArmies=g.theirArmies,info=document.getElementById('stepInfo'),ctrl=document.getElementById('pairingControls');ctrl.style.display='';const ao=availableOurs(),at=availableTheirs();
-if(currentStep==='defenders'){info.innerHTML=`<strong>Round ${roundNum+1}:</strong> Both teams put forward a defender simultaneously.`;ctrl.innerHTML=`<div class="parallel-cols"><div class="col-panel us-panel"><h4>Our Defender</h4><div class="army-buttons">${ao.map(i=>`<button class="army-btn ${ourDefenderIdx===i?'selected':''}" onclick="selectOurDefender(${i})">${esc(ourArmies[i])}</button>`).join('')}</div></div><div class="col-panel them-panel"><h4>Their Defender</h4><div class="army-buttons">${at.map(j=>`<button class="army-btn ${theirDefenderIdx===j?'selected':''}" onclick="selectTheirDefender(${j})">${esc(theirArmies[j])}</button>`).join('')}</div></div></div><div class="actions-row"><button class="action-btn primary" onclick="confirmDefenders()" ${ourDefenderIdx===null||theirDefenderIdx===null?'disabled':''}>Confirm Defenders</button></div>`;}
-else if(currentStep==='counters'){const oac=ao.filter(i=>i!==ourDefenderIdx),tac=at.filter(j=>j!==theirDefenderIdx);info.innerHTML=`<strong>Round ${roundNum+1}:</strong> Defenders: <em>${esc(ourArmies[ourDefenderIdx])}</em> (us) &amp; <em>${esc(theirArmies[theirDefenderIdx])}</em> (them). Counter with 2.`;ctrl.innerHTML=`<div class="parallel-cols"><div class="col-panel us-panel"><h4>Our 2 vs <em>${esc(theirArmies[theirDefenderIdx])}</em></h4><div class="army-buttons">${oac.map(i=>{const c=ratings[i][theirDefenderIdx],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${ourCounters.includes(i)?'counter-selected':''}" onclick="toggleOurCounter(${i})">${esc(ourArmies[i])}${t}</button>`;}).join('')}</div></div><div class="col-panel them-panel"><h4>Their 2 vs <em>${esc(ourArmies[ourDefenderIdx])}</em></h4><div class="army-buttons">${tac.map(j=>{const c=ratings[ourDefenderIdx][j],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${theirCounters.includes(j)?'counter-selected':''}" onclick="toggleTheirCounter(${j})">${esc(theirArmies[j])}${t}</button>`;}).join('')}</div></div></div><div class="actions-row"><button class="action-btn primary" onclick="confirmCounters()" ${ourCounters.length!==2||theirCounters.length!==2?'disabled':''}>Confirm Counters</button></div>`;}
+if(currentStep==='defenders'){info.innerHTML=`<strong>Round ${roundNum+1}:</strong> Both teams put forward a defender simultaneously.`;ctrl.innerHTML=`<div class="parallel-cols"><div class="col-panel us-panel"><h4>Our Defender</h4><div class="army-buttons">${ao.map(i=>`<button class="army-btn ${ourDefenderIdx===i?'selected':''}" onclick="selectOurDefender(${i})">${esc(ourArmies[i])}</button>`).join('')}</div></div><div class="col-panel them-panel"><h4>Their Defender</h4><div class="army-buttons">${at.map(j=>`<button class="army-btn ${theirDefenderIdx===j?'selected':''}" onclick="selectTheirDefender(${j})" onmouseenter="showListTooltip(event,'game',${j})" onmousemove="moveListTooltip(event)" onmouseleave="hideListTooltip()">${esc(theirArmies[j])}</button>`).join('')}</div></div></div><div class="actions-row"><button class="action-btn primary" onclick="confirmDefenders()" ${ourDefenderIdx===null||theirDefenderIdx===null?'disabled':''}>Confirm Defenders</button></div>`;}
+else if(currentStep==='counters'){const oac=ao.filter(i=>i!==ourDefenderIdx),tac=at.filter(j=>j!==theirDefenderIdx);info.innerHTML=`<strong>Round ${roundNum+1}:</strong> Defenders: <em>${esc(ourArmies[ourDefenderIdx])}</em> (us) &amp; <em>${esc(theirArmies[theirDefenderIdx])}</em> (them). Counter with 2.`;ctrl.innerHTML=`<div class="parallel-cols"><div class="col-panel us-panel"><h4>Our 2 vs <em>${esc(theirArmies[theirDefenderIdx])}</em></h4><div class="army-buttons">${oac.map(i=>{const c=ratings[i][theirDefenderIdx],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${ourCounters.includes(i)?'counter-selected':''}" onclick="toggleOurCounter(${i})">${esc(ourArmies[i])}${t}</button>`;}).join('')}</div></div><div class="col-panel them-panel"><h4>Their 2 vs <em>${esc(ourArmies[ourDefenderIdx])}</em></h4><div class="army-buttons">${tac.map(j=>{const c=ratings[ourDefenderIdx][j],t=colorLabel(c)?` (${colorLabel(c)})`:'';return`<button class="army-btn ${theirCounters.includes(j)?'counter-selected':''}" onclick="toggleTheirCounter(${j})" onmouseenter="showListTooltip(event,'game',${j})" onmousemove="moveListTooltip(event)" onmouseleave="hideListTooltip()">${esc(theirArmies[j])}${t}</button>`;}).join('')}</div></div></div><div class="actions-row"><button class="action-btn primary" onclick="confirmCounters()" ${ourCounters.length!==2||theirCounters.length!==2?'disabled':''}>Confirm Counters</button></div>`;}
 else if(currentStep==='pick1'){renderPickStep(game().tablePick,'pick1');}
 else if(currentStep==='pick2'){renderPickStep(game().tablePick==='us'?'them':'us','pick2');}
 else if(currentStep==='mapSelect'){renderMapSelect();}}
 
 function renderPickStep(picker,stepId){const g=game(),ratings=g.ratings,ta=g.theirArmies,info=document.getElementById('stepInfo'),ctrl=document.getElementById('pairingControls');
-if(picker==='us'){info.innerHTML=`<strong>Round ${roundNum+1} – ${stepId==='pick1'?'1st':'2nd'} Pick:</strong> WE pick vs our <em>${esc(ourArmies[ourDefenderIdx])}</em>.`;ctrl.innerHTML=`<div class="summary-box"><span class="defender-label">Our defender:</span> ${esc(ourArmies[ourDefenderIdx])} — countered by: ${theirCounters.map(j=>esc(ta[j])).join(' & ')}</div><p style="font-size:0.85rem;margin-bottom:8px;">Pick matchup:</p><div class="army-buttons">${theirCounters.map(j=>{const c=ratings[ourDefenderIdx][j],l=colorLabel(c)||'?',bg=colorBg(c);return`<button class="pick-btn" onclick="makePick('us',${j})" style="border-color:${bg};background:${bg};">${esc(ta[j])}<br><small style="opacity:0.8">${l}</small></button>`;}).join('')}</div>`;}
+if(picker==='us'){info.innerHTML=`<strong>Round ${roundNum+1} – ${stepId==='pick1'?'1st':'2nd'} Pick:</strong> WE pick vs our <em>${esc(ourArmies[ourDefenderIdx])}</em>.`;ctrl.innerHTML=`<div class="summary-box"><span class="defender-label">Our defender:</span> ${esc(ourArmies[ourDefenderIdx])} — countered by: ${theirCounters.map(j=>esc(ta[j])).join(' & ')}</div><p style="font-size:0.85rem;margin-bottom:8px;">Pick matchup:</p><div class="army-buttons">${theirCounters.map(j=>{const c=ratings[ourDefenderIdx][j],l=colorLabel(c)||'?',bg=colorBg(c);return`<button class="pick-btn" onclick="makePick('us',${j})" onmouseenter="showListTooltip(event,'game',${j})" onmousemove="moveListTooltip(event)" onmouseleave="hideListTooltip()" style="border-color:${bg};background:${bg};">${esc(ta[j])}<br><small style="opacity:0.8">${l}</small></button>`;}).join('')}</div>`;}
 else{info.innerHTML=`<strong>Round ${roundNum+1} – ${stepId==='pick1'?'1st':'2nd'} Pick:</strong> THEY pick vs their <em>${esc(ta[theirDefenderIdx])}</em>.`;ctrl.innerHTML=`<div class="summary-box"><span class="defender-label">Their defender:</span> ${esc(ta[theirDefenderIdx])} — countered by: ${ourCounters.map(i=>esc(ourArmies[i])).join(' & ')}</div><p style="font-size:0.85rem;margin-bottom:8px;">They pick:</p><div class="army-buttons">${ourCounters.map(i=>{const c=ratings[i][theirDefenderIdx],l=colorLabel(c)||'?',bg=colorBg(c);return`<button class="pick-btn" onclick="makePick('them',${i})" style="border-color:${bg};background:${bg};">${esc(ourArmies[i])}<br><small style="opacity:0.8">${l}</small></button>`;}).join('')}</div>`;}}
 
 function renderMapSelect() {
